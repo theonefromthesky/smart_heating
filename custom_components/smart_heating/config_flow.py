@@ -7,17 +7,25 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 import homeassistant.helpers.config_validation as cv
 
-# --- FIXED IMPORTS BELOW ---
 from .const import (
     DOMAIN,
     CONF_HEATER,
     CONF_SENSOR,
     CONF_SCHEDULE,
     DEFAULT_NAME,
-    CONF_ENABLE_PREHEAT,
-    CONF_ENABLE_OVERSHOOT,
-    CONF_ENABLE_LEARNING,
 )
+
+# --- SAFETY IMPORT BLOCK ---
+try:
+    from .const import (
+        CONF_ENABLE_PREHEAT,
+        CONF_ENABLE_OVERSHOOT,
+        CONF_ENABLE_LEARNING,
+    )
+except ImportError:
+    CONF_ENABLE_PREHEAT = "enable_preheat"
+    CONF_ENABLE_OVERSHOOT = "enable_overshoot"
+    CONF_ENABLE_LEARNING = "enable_learning"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +41,6 @@ class SmartHeatingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             return self.async_create_entry(title=user_input.get("name", DEFAULT_NAME), data=user_input)
 
-        # The Form Schema
         data_schema = vol.Schema({
             vol.Required("name", default=DEFAULT_NAME): str,
             vol.Required(CONF_HEATER): selector.EntitySelector(
@@ -62,31 +69,35 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow (Settings -> Configure)."""
 
     def __init__(self, config_entry):
-        self.config_entry = config_entry
+        # FIX: Do not assign to self.config_entry as it is read-only in newer HA versions.
+        # We store it in self._config_entry instead.
+        self._config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        # Get current values or set defaults
-        options = self.config_entry.options
-        data = self.config_entry.data
+        # FIX: Read from self._config_entry
+        options = self._config_entry.options
+        data = self._config_entry.data
         
-        # Schema for the Configure menu
+        # Helper to safely get current value
+        def get_opt(key, default):
+            return options.get(key, data.get(key, default))
+
         schema = vol.Schema({
-            # Allow changing entities (default to current value)
-            vol.Required(CONF_HEATER, default=options.get(CONF_HEATER, data.get(CONF_HEATER))): selector.EntitySelector(
+            vol.Required(CONF_HEATER, default=get_opt(CONF_HEATER, None)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
             ),
-            vol.Required(CONF_SENSOR, default=options.get(CONF_SENSOR, data.get(CONF_SENSOR))): selector.EntitySelector(
+            vol.Required(CONF_SENSOR, default=get_opt(CONF_SENSOR, None)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
-            vol.Optional(CONF_SCHEDULE, default=options.get(CONF_SCHEDULE, data.get(CONF_SCHEDULE))): selector.EntitySelector(
+            vol.Optional(CONF_SCHEDULE, default=get_opt(CONF_SCHEDULE, None)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="schedule")
             ),
             
-            # The Toggles
+            # Toggles
             vol.Required(CONF_ENABLE_PREHEAT, default=options.get(CONF_ENABLE_PREHEAT, True)): bool,
             vol.Required(CONF_ENABLE_OVERSHOOT, default=options.get(CONF_ENABLE_OVERSHOOT, True)): bool,
             vol.Required(CONF_ENABLE_LEARNING, default=options.get(CONF_ENABLE_LEARNING, True)): bool,
