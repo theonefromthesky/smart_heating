@@ -2,7 +2,7 @@
 from homeassistant.components.sensor import SensorEntity, SensorStateClass, SensorDeviceClass
 from homeassistant.const import UnitOfTemperature, UnitOfTime
 import homeassistant.helpers.entity_registry
-# FIX 1: Import the event tracker correctly
+# FIX: Import this function directly
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
@@ -41,7 +41,7 @@ class HeatingDiagnosticSensor(SensorEntity):
                 break
         
         if self._climate_entity_id:
-             # FIX 2: Call the imported function correctly with (hass, entity, callback)
+             # FIX: Use the imported function
              self.async_on_remove(
                 async_track_state_change_event(
                     self.hass, [self._climate_entity_id], self._handle_climate_update
@@ -81,7 +81,7 @@ class NextFireSensor(SensorEntity):
                 break
         
         if self._climate_entity_id:
-             # FIX 3: Correct call here as well
+             # FIX: Use the imported function
              self.async_on_remove(
                 async_track_state_change_event(
                     self.hass, [self._climate_entity_id], self._handle_climate_update
@@ -92,7 +92,6 @@ class NextFireSensor(SensorEntity):
     def native_value(self):
         if not self._climate_entity_id: return None
         state = self.hass.states.get(self._climate_entity_id)
-        # We look for a specific attribute "next_fire_timestamp"
         if state and "next_fire_timestamp" in state.attributes:
             return state.attributes["next_fire_timestamp"]
         return None
