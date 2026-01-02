@@ -33,6 +33,8 @@ from .const import (
     CONF_MAX_PREHEAT_TIME,
     CONF_HYSTERESIS,
     CONF_MIN_BURN_TIME,
+    CONF_COMFORT_TEMP,       # NEW
+    CONF_SETBACK_TEMP,       # NEW
     DEFAULT_HEAT_UP_RATE,
     DEFAULT_HEAT_LOSS_RATE,
     DEFAULT_OVERSHOOT,
@@ -40,6 +42,8 @@ from .const import (
     DEFAULT_MAX_ON_TIME,
     DEFAULT_MAX_PREHEAT_TIME,
     DEFAULT_MIN_BURN_TIME,
+    DEFAULT_COMFORT_TEMP,    # NEW
+    DEFAULT_SETBACK_TEMP,    # NEW
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,7 +75,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
 
         # Operational State
         self._hvac_mode = HVACMode.OFF
-        self._target_temp = 20.0
+        self._target_temp = self._comfort_temp # Default start
         self._current_temp = None
         self._is_active_heating = False 
         
@@ -102,9 +106,13 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         
         # Numeric Tunables
         self._hysteresis = opts.get(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)
-        self._max_on_time = opts.get(CONF_MAX_ON_TIME, DEFAULT_MAX_ON_TIME) * 60 # Convert to seconds
+        self._max_on_time = opts.get(CONF_MAX_ON_TIME, DEFAULT_MAX_ON_TIME) * 60 
         self._max_preheat_time = opts.get(CONF_MAX_PREHEAT_TIME, DEFAULT_MAX_PREHEAT_TIME)
         self._min_burn_time = opts.get(CONF_MIN_BURN_TIME, DEFAULT_MIN_BURN_TIME)
+        
+        # Temps
+        self._comfort_temp = opts.get(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
+        self._setback_temp = opts.get(CONF_SETBACK_TEMP, DEFAULT_SETBACK_TEMP)
 
     async def async_added_to_hass(self):
         """Run when entity is added."""
@@ -114,7 +122,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         last_state = await self.async_get_last_state()
         if last_state:
             self._hvac_mode = last_state.state if last_state.state in self._attr_hvac_modes else HVACMode.OFF
-            self._target_temp = last_state.attributes.get("target_temp", 20.0)
+            self._target_temp = last_state.attributes.get("target_temp", self._comfort_temp)
             self._heat_up_rate = last_state.attributes.get("learned_heat_up_rate", DEFAULT_HEAT_UP_RATE)
             self._heat_loss_rate = last_state.attributes.get("learned_heat_loss_rate", DEFAULT_HEAT_LOSS_RATE)
             self._overshoot_temp = last_state.attributes.get("learned_overshoot", DEFAULT_OVERSHOOT)
@@ -132,7 +140,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         self._load_config_options()
         await self._run_control_logic()
 
-    # --- Properties for Sensors to Read ---
+    # --- Properties ---
     @property
     def heat_up_rate(self): return self._heat_up_rate
     @property
@@ -162,10 +170,13 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             "boiler_active": self._is_active_heating,
             "hysteresis": self._hysteresis,
             "max_on_time_mins": self._max_on_time / 60,
-            "next_fire_timestamp": self._calculate_next_fire_time()
+            "next_fire_timestamp": self._calculate_next_fire_time(),
+            "comfort_temp": self._comfort_temp,
+            "setback_temp": self._setback_temp
         }
 
     async def async_set_temperature(self, **kwargs):
+        """User manually sets temp (Override)."""
         if (temp := kwargs.get(ATTR_TEMPERATURE)) is not None:
             self._target_temp = temp
             self.async_write_ha_state()
@@ -190,8 +201,25 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         except ValueError: pass
 
     @callback
-    async def _async_control_loop_event(self, event): await self._run_control_logic()
-    async def _async_control_loop(self, now=None): await self._run_control_logic()
+    async def _async_control_loop_event(self, event):
+        """Triggered ONLY when schedule changes state."""
+        new_state = event.data.get("new_state")
+        if new_state is None: return
+
+        # LOGIC: Reset target temp only on schedule switch
+        if new_state.state == STATE_ON:
+             _LOGGER.info(f"Schedule ON: Restoring Comfort Temp {self._comfort_temp}")
+             self._target_temp = self._comfort_temp
+        elif new_state.state == STATE_OFF:
+             _LOGGER.info(f"Schedule OFF: Restoring Setback Temp {self._setback_temp}")
+             self._target_temp = self._setback_temp
+             
+        self.async_write_ha_state()
+        await self._run_control_logic()
+
+    async def _async_control_loop(self, now=None): 
+        # Loop does NOT change target temp (preserves overrides)
+        await self._run_control_logic()
 
     async def _run_control_logic(self):
         if self._current_temp is None or self._hvac_mode == HVACMode.OFF:
@@ -201,27 +229,30 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         now = dt_util.now()
         target = self._target_temp
         
-        # PREHEAT
+        # PREHEAT LOGIC
+        # If enabled, schedule is OFF, and we are approaching an ON slot
         preheat_active = False
         if self._enable_preheat and self._schedule_entity_id:
             sched_state = self.hass.states.get(self._schedule_entity_id)
             if sched_state and sched_state.state == STATE_OFF:
                 next_start = self._get_next_schedule_start()
                 if next_start:
-                    comfort_target = 20.0 
-                    diff = comfort_target - self._current_temp
+                    # Target the COMFORT temp
+                    diff = self._comfort_temp - self._current_temp
                     if diff > 0:
                         minutes_needed = diff / self._heat_up_rate
-                        # USE CONFIGURABLE MAX PREHEAT
                         minutes_needed = min(minutes_needed, self._max_preheat_time)
                         start_time = next_start - timedelta(minutes=minutes_needed)
+                        
                         if now >= start_time:
-                            target = comfort_target
+                            # Boost target to comfort
+                            target = self._comfort_temp
                             preheat_active = True
                             self._attr_preset_mode = "preheat"
+        
         if not preheat_active: self._attr_preset_mode = "none"
 
-        # HYSTERESIS / OVERSHOOT
+        # OVERSHOOT LOGIC
         overshoot_adj = self._overshoot_temp if self._enable_overshoot else 0.0
         effective_cutoff = target - overshoot_adj
         
@@ -229,12 +260,10 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             if self._current_temp >= effective_cutoff:
                 _LOGGER.info(f"Target reached. OFF.")
                 await self._set_boiler(False)
-            # USE CONFIGURABLE MAX ON TIME
             elif (now.timestamp() - self._last_on_time) > self._max_on_time:
                  _LOGGER.warning("Watchdog: Max runtime exceeded.")
                  await self._set_boiler(False)
         else:
-            # USE CONFIGURABLE HYSTERESIS
             on_point = target - self._hysteresis
             if self._current_temp <= on_point:
                  _LOGGER.info(f"Turning ON.")
@@ -262,8 +291,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         if not self._last_on_time or not self._heat_start_temp: return
         now_ts = dt_util.now().timestamp()
         duration_mins = (now_ts - self._last_on_time) / 60.0
-        
-        # USE CONFIGURABLE MIN BURN TIME
         if duration_mins < self._min_burn_time: return 
         delta_temp = self._current_temp - self._heat_start_temp
         if delta_temp < 0.2: return
@@ -291,31 +318,21 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         return None
 
     def _calculate_next_fire_time(self):
-        """Estimate when the boiler will next fire based on schedule and learning."""
-        if self._is_active_heating:
-            return dt_util.now().isoformat()
-            
+        """Estimate when the boiler will next fire."""
+        if self._is_active_heating: return dt_util.now().isoformat()
         next_sched = self._get_next_schedule_start()
-        if not next_sched:
-            return None
+        if not next_sched: return None
+        if not self._enable_preheat: return next_sched.isoformat()
             
-        if not self._enable_preheat:
-            return next_sched.isoformat()
-            
-        comfort_target = 20.0 
-        current = self._current_temp if self._current_temp else 20.0
+        current = self._current_temp if self._current_temp else self._comfort_temp
+        diff = self._comfort_temp - current # Use configured Comfort Temp
         
-        diff = comfort_target - current
-        if diff <= 0:
-            return next_sched.isoformat()
+        if diff <= 0: return next_sched.isoformat()
             
         minutes_needed = diff / self._heat_up_rate
         minutes_needed = min(minutes_needed, self._max_preheat_time)
-        
         fire_time = next_sched - timedelta(minutes=minutes_needed)
         
         now = dt_util.now()
-        if fire_time < now:
-            return now.isoformat()
-            
+        if fire_time < now: return now.isoformat()
         return fire_time.isoformat()
