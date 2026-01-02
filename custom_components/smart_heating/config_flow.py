@@ -7,6 +7,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 import homeassistant.helpers.config_validation as cv
 
+# DIRECT IMPORT - No try/except block
 from .const import (
     DOMAIN,
     CONF_HEATER,
