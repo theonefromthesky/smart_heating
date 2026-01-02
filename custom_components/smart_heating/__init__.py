@@ -8,7 +8,7 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.CLIMATE]
+PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Smart Heating from a config entry."""
@@ -16,7 +16,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store an object to hold instance data if needed (optional)
     hass.data.setdefault(DOMAIN, {})
     
-    # Forward the setup to the climate platform
+    # Forward the setup to the climate platform AND sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
     # Reload entry when options change
