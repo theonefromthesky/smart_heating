@@ -89,7 +89,16 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
             return options.get(key, data.get(key, default))
 
         schema = vol.Schema({
-            # Entities
+
+            vol.Required(CONF_COMFORT_TEMP, default=get_opt(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)): 
+                selector.NumberSelector(selector.NumberSelectorConfig(min=10, max=30, step=0.5, unit_of_measurement="°C")),
+
+            vol.Required(CONF_SETBACK_TEMP, default=get_opt(CONF_SETBACK_TEMP, DEFAULT_SETBACK_TEMP)): 
+                selector.NumberSelector(selector.NumberSelectorConfig(min=5, max=25, step=0.5, unit_of_measurement="°C")),
+
+            vol.Required(CONF_HYSTERESIS, default=get_opt(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)): 
+                 selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=2.0, step=0.1, unit_of_measurement="°C")),
+            
             vol.Required(CONF_HEATER, default=get_opt(CONF_HEATER, None)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
             ),
@@ -120,3 +129,4 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
         })
 
         return self.async_show_form(step_id="init", data_schema=schema)
+
