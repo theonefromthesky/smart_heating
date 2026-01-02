@@ -7,12 +7,16 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 import homeassistant.helpers.config_validation as cv
 
+# --- FIXED IMPORTS BELOW ---
 from .const import (
     DOMAIN,
     CONF_HEATER,
     CONF_SENSOR,
     CONF_SCHEDULE,
     DEFAULT_NAME,
+    CONF_ENABLE_PREHEAT,
+    CONF_ENABLE_OVERSHOOT,
+    CONF_ENABLE_LEARNING,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,7 +31,6 @@ class SmartHeatingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Validate input if necessary, then create entry
             return self.async_create_entry(title=user_input.get("name", DEFAULT_NAME), data=user_input)
 
         # The Form Schema
@@ -68,21 +71,22 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
 
         # Get current values or set defaults
         options = self.config_entry.options
+        data = self.config_entry.data
         
         # Schema for the Configure menu
         schema = vol.Schema({
-            # Allow changing entities
-            vol.Required(CONF_HEATER, default=options.get(CONF_HEATER, self.config_entry.data.get(CONF_HEATER))): selector.EntitySelector(
+            # Allow changing entities (default to current value)
+            vol.Required(CONF_HEATER, default=options.get(CONF_HEATER, data.get(CONF_HEATER))): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
             ),
-            vol.Required(CONF_SENSOR, default=options.get(CONF_SENSOR, self.config_entry.data.get(CONF_SENSOR))): selector.EntitySelector(
+            vol.Required(CONF_SENSOR, default=options.get(CONF_SENSOR, data.get(CONF_SENSOR))): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
-            vol.Optional(CONF_SCHEDULE, default=options.get(CONF_SCHEDULE, self.config_entry.data.get(CONF_SCHEDULE))): selector.EntitySelector(
+            vol.Optional(CONF_SCHEDULE, default=options.get(CONF_SCHEDULE, data.get(CONF_SCHEDULE))): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="schedule")
             ),
             
-            # The Toggles you wanted
+            # The Toggles
             vol.Required(CONF_ENABLE_PREHEAT, default=options.get(CONF_ENABLE_PREHEAT, True)): bool,
             vol.Required(CONF_ENABLE_OVERSHOOT, default=options.get(CONF_ENABLE_OVERSHOOT, True)): bool,
             vol.Required(CONF_ENABLE_LEARNING, default=options.get(CONF_ENABLE_LEARNING, True)): bool,
