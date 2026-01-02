@@ -6,7 +6,6 @@ from datetime import timedelta
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode, HVACAction
 from homeassistant.const import (
     ATTR_TEMPERATURE,
-    CONF_NAME,
     UnitOfTemperature,
     STATE_ON,
     STATE_OFF,
@@ -14,7 +13,6 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
@@ -33,8 +31,8 @@ from .const import (
     CONF_MAX_PREHEAT_TIME,
     CONF_HYSTERESIS,
     CONF_MIN_BURN_TIME,
-    CONF_COMFORT_TEMP,       # NEW
-    CONF_SETBACK_TEMP,       # NEW
+    CONF_COMFORT_TEMP,
+    CONF_SETBACK_TEMP,
     DEFAULT_HEAT_UP_RATE,
     DEFAULT_HEAT_LOSS_RATE,
     DEFAULT_OVERSHOOT,
@@ -42,8 +40,8 @@ from .const import (
     DEFAULT_MAX_ON_TIME,
     DEFAULT_MAX_PREHEAT_TIME,
     DEFAULT_MIN_BURN_TIME,
-    DEFAULT_COMFORT_TEMP,    # NEW
-    DEFAULT_SETBACK_TEMP,    # NEW
+    DEFAULT_COMFORT_TEMP,
+    DEFAULT_SETBACK_TEMP,
 )
 
 _LOGGER = logging.getLogger(__name__)
