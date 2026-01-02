@@ -15,17 +15,24 @@ from .const import (
     DEFAULT_NAME,
 )
 
-# --- SAFETY IMPORT BLOCK ---
+# Safety Import
 try:
     from .const import (
         CONF_ENABLE_PREHEAT,
         CONF_ENABLE_OVERSHOOT,
         CONF_ENABLE_LEARNING,
+        CONF_MAX_ON_TIME,
+        CONF_MAX_PREHEAT_TIME,
+        CONF_HYSTERESIS,
+        CONF_MIN_BURN_TIME,
+        DEFAULT_MAX_ON_TIME,
+        DEFAULT_MAX_PREHEAT_TIME,
+        DEFAULT_HYSTERESIS,
+        DEFAULT_MIN_BURN_TIME,
     )
 except ImportError:
-    CONF_ENABLE_PREHEAT = "enable_preheat"
-    CONF_ENABLE_OVERSHOOT = "enable_overshoot"
-    CONF_ENABLE_LEARNING = "enable_learning"
+    # Fallback to prevent crash if const.py is cached
+    pass
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,7 +68,6 @@ class SmartHeatingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        """Create the options flow."""
         return SmartHeatingOptionsFlowHandler(config_entry)
 
 
@@ -69,8 +75,6 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow (Settings -> Configure)."""
 
     def __init__(self, config_entry):
-        # FIX: Do not assign to self.config_entry as it is read-only in newer HA versions.
-        # We store it in self._config_entry instead.
         self._config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
@@ -78,15 +82,14 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        # FIX: Read from self._config_entry
         options = self._config_entry.options
         data = self._config_entry.data
         
-        # Helper to safely get current value
         def get_opt(key, default):
             return options.get(key, data.get(key, default))
 
         schema = vol.Schema({
+            # Entities
             vol.Required(CONF_HEATER, default=get_opt(CONF_HEATER, None)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
             ),
@@ -97,10 +100,23 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
                 selector.EntitySelectorConfig(domain="schedule")
             ),
             
+            # Numeric Settings (Tunables)
+            vol.Required(CONF_HYSTERESIS, default=get_opt(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)): 
+                selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=2.0, step=0.1, unit_of_measurement="°C")),
+                
+            vol.Required(CONF_MAX_ON_TIME, default=get_opt(CONF_MAX_ON_TIME, DEFAULT_MAX_ON_TIME)): 
+                selector.NumberSelector(selector.NumberSelectorConfig(min=30, max=600, step=10, unit_of_measurement="min")),
+                
+            vol.Required(CONF_MAX_PREHEAT_TIME, default=get_opt(CONF_MAX_PREHEAT_TIME, DEFAULT_MAX_PREHEAT_TIME)): 
+                selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=300, step=10, unit_of_measurement="min")),
+                
+            vol.Required(CONF_MIN_BURN_TIME, default=get_opt(CONF_MIN_BURN_TIME, DEFAULT_MIN_BURN_TIME)): 
+                selector.NumberSelector(selector.NumberSelectorConfig(min=5, max=60, step=1, unit_of_measurement="min")),
+
             # Toggles
-            vol.Required(CONF_ENABLE_PREHEAT, default=options.get(CONF_ENABLE_PREHEAT, True)): bool,
-            vol.Required(CONF_ENABLE_OVERSHOOT, default=options.get(CONF_ENABLE_OVERSHOOT, True)): bool,
-            vol.Required(CONF_ENABLE_LEARNING, default=options.get(CONF_ENABLE_LEARNING, True)): bool,
+            vol.Required(CONF_ENABLE_PREHEAT, default=get_opt(CONF_ENABLE_PREHEAT, True)): bool,
+            vol.Required(CONF_ENABLE_OVERSHOOT, default=get_opt(CONF_ENABLE_OVERSHOOT, True)): bool,
+            vol.Required(CONF_ENABLE_LEARNING, default=get_opt(CONF_ENABLE_LEARNING, True)): bool,
         })
 
         return self.async_show_form(step_id="init", data_schema=schema)
