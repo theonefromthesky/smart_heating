@@ -2,6 +2,8 @@
 from homeassistant.components.sensor import SensorEntity, SensorStateClass, SensorDeviceClass
 from homeassistant.const import UnitOfTemperature, UnitOfTime
 import homeassistant.helpers.entity_registry
+# FIX 1: Import the event tracker correctly
+from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
 
@@ -39,9 +41,10 @@ class HeatingDiagnosticSensor(SensorEntity):
                 break
         
         if self._climate_entity_id:
+             # FIX 2: Call the imported function correctly with (hass, entity, callback)
              self.async_on_remove(
-                self.hass.helpers.event.async_track_state_change_event(
-                    self._climate_entity_id, self._handle_climate_update
+                async_track_state_change_event(
+                    self.hass, [self._climate_entity_id], self._handle_climate_update
                 )
             )
 
@@ -78,9 +81,10 @@ class NextFireSensor(SensorEntity):
                 break
         
         if self._climate_entity_id:
+             # FIX 3: Correct call here as well
              self.async_on_remove(
-                self.hass.helpers.event.async_track_state_change_event(
-                    self._climate_entity_id, self._handle_climate_update
+                async_track_state_change_event(
+                    self.hass, [self._climate_entity_id], self._handle_climate_update
                 )
             )
 
