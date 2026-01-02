@@ -2,7 +2,7 @@
 from homeassistant.const import Platform
 
 DOMAIN = "smart_heating"
-PLATFORMS = [Platform.CLIMATE, Platform.SENSOR] # <--- Added SENSOR
+PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
 
 # Configuration Keys (Setup)
 CONF_HEATER = "heater_entity_id"
@@ -15,10 +15,14 @@ CONF_ENABLE_OVERSHOOT = "enable_overshoot"
 CONF_ENABLE_LEARNING = "enable_learning"
 
 # Tunable Numeric Keys
-CONF_MAX_ON_TIME = "max_on_time"           # minutes
-CONF_MAX_PREHEAT_TIME = "max_preheat_time" # minutes
-CONF_HYSTERESIS = "hysteresis"             # degrees C
-CONF_MIN_BURN_TIME = "min_burn_time"       # minutes (for learning validty)
+CONF_MAX_ON_TIME = "max_on_time"
+CONF_MAX_PREHEAT_TIME = "max_preheat_time"
+CONF_HYSTERESIS = "hysteresis"
+CONF_MIN_BURN_TIME = "min_burn_time"
+
+# NEW: Temperature Settings
+CONF_COMFORT_TEMP = "comfort_temp"
+CONF_SETBACK_TEMP = "setback_temp"
 
 # Defaults
 DEFAULT_NAME = "Central Heating"
@@ -29,6 +33,8 @@ DEFAULT_OVERSHOOT = 0.0
 
 # Tunable Defaults
 DEFAULT_HYSTERESIS = 0.2
-DEFAULT_MAX_ON_TIME = 300       # 5 hours
-DEFAULT_MAX_PREHEAT_TIME = 180  # 3 hours
-DEFAULT_MIN_BURN_TIME = 10      # 10 minutes
+DEFAULT_MAX_ON_TIME = 300       
+DEFAULT_MAX_PREHEAT_TIME = 180  
+DEFAULT_MIN_BURN_TIME = 10 
+DEFAULT_COMFORT_TEMP = 20.0     # NEW
+DEFAULT_SETBACK_TEMP = 16.0     # NEW
