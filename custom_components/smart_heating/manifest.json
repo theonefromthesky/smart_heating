@@ -1,8 +1,7 @@
-"version": "1.0.0"
 {
   "domain": "smart_heating",
   "name": "Smart Learning Thermostat",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "documentation": "https://github.com/yourname/smart_heating",
   "dependencies": [],
   "codeowners": [],
@@ -11,4 +10,5 @@
   "config_flow": true
 
 }
+
 
