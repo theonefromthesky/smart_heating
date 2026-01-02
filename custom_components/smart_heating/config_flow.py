@@ -15,7 +15,7 @@ from .const import (
     DEFAULT_NAME,
 )
 
-# Safety Import
+# Safety Import Block - Updated with ALL new keys
 try:
     from .const import (
         CONF_ENABLE_PREHEAT,
@@ -25,10 +25,14 @@ try:
         CONF_MAX_PREHEAT_TIME,
         CONF_HYSTERESIS,
         CONF_MIN_BURN_TIME,
+        CONF_COMFORT_TEMP,     # <--- ADDED THIS
+        CONF_SETBACK_TEMP,     # <--- ADDED THIS
         DEFAULT_MAX_ON_TIME,
         DEFAULT_MAX_PREHEAT_TIME,
         DEFAULT_HYSTERESIS,
         DEFAULT_MIN_BURN_TIME,
+        DEFAULT_COMFORT_TEMP,  # <--- ADDED THIS
+        DEFAULT_SETBACK_TEMP,  # <--- ADDED THIS
     )
 except ImportError:
     # Fallback to prevent crash if const.py is cached
@@ -89,16 +93,14 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
             return options.get(key, data.get(key, default))
 
         schema = vol.Schema({
-
+            # Temperature Settings
             vol.Required(CONF_COMFORT_TEMP, default=get_opt(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)): 
                 selector.NumberSelector(selector.NumberSelectorConfig(min=10, max=30, step=0.5, unit_of_measurement="°C")),
 
             vol.Required(CONF_SETBACK_TEMP, default=get_opt(CONF_SETBACK_TEMP, DEFAULT_SETBACK_TEMP)): 
                 selector.NumberSelector(selector.NumberSelectorConfig(min=5, max=25, step=0.5, unit_of_measurement="°C")),
-
-            vol.Required(CONF_HYSTERESIS, default=get_opt(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)): 
-                 selector.NumberSelector(selector.NumberSelectorConfig(min=0.1, max=2.0, step=0.1, unit_of_measurement="°C")),
             
+            # Entities
             vol.Required(CONF_HEATER, default=get_opt(CONF_HEATER, None)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
             ),
@@ -129,4 +131,3 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
         })
 
         return self.async_show_form(step_id="init", data_schema=schema)
-
