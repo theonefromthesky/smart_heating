@@ -13,30 +13,22 @@ from .const import (
     CONF_SENSOR,
     CONF_SCHEDULE,
     DEFAULT_NAME,
+    CONF_ENABLE_PREHEAT,
+    CONF_ENABLE_OVERSHOOT,
+    CONF_ENABLE_LEARNING,
+    CONF_MAX_ON_TIME,
+    CONF_MAX_PREHEAT_TIME,
+    CONF_HYSTERESIS,
+    CONF_MIN_BURN_TIME,
+    CONF_COMFORT_TEMP,
+    CONF_SETBACK_TEMP,
+    DEFAULT_MAX_ON_TIME,
+    DEFAULT_MAX_PREHEAT_TIME,
+    DEFAULT_HYSTERESIS,
+    DEFAULT_MIN_BURN_TIME,
+    DEFAULT_COMFORT_TEMP,
+    DEFAULT_SETBACK_TEMP,
 )
-
-# Safety Import Block - Updated with ALL new keys
-try:
-    from .const import (
-        CONF_ENABLE_PREHEAT,
-        CONF_ENABLE_OVERSHOOT,
-        CONF_ENABLE_LEARNING,
-        CONF_MAX_ON_TIME,
-        CONF_MAX_PREHEAT_TIME,
-        CONF_HYSTERESIS,
-        CONF_MIN_BURN_TIME,
-        CONF_COMFORT_TEMP,     # <--- ADDED THIS
-        CONF_SETBACK_TEMP,     # <--- ADDED THIS
-        DEFAULT_MAX_ON_TIME,
-        DEFAULT_MAX_PREHEAT_TIME,
-        DEFAULT_HYSTERESIS,
-        DEFAULT_MIN_BURN_TIME,
-        DEFAULT_COMFORT_TEMP,  # <--- ADDED THIS
-        DEFAULT_SETBACK_TEMP,  # <--- ADDED THIS
-    )
-except ImportError:
-    # Fallback to prevent crash if const.py is cached
-    pass
 
 _LOGGER = logging.getLogger(__name__)
 
