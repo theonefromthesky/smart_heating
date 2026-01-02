@@ -2,6 +2,9 @@ from homeassistant.components.sensor import SensorEntity, SensorStateClass, Sens
 from homeassistant.const import UnitOfTemperature, UnitOfTime
 import homeassistant.helpers.entity_registry
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util import dt as dt_util  # <--- NEW IMPORT
+from datetime import datetime
+
 from .const import DOMAIN
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -78,8 +81,12 @@ class NextFireSensor(SensorEntity):
     def native_value(self):
         if not self._climate_entity_id: return None
         state = self.hass.states.get(self._climate_entity_id)
+        
+        # LOGIC FIX: Convert string back to datetime object
         if state and "next_fire_timestamp" in state.attributes:
-            return state.attributes["next_fire_timestamp"]
+            ts_str = state.attributes["next_fire_timestamp"]
+            if ts_str:
+                return dt_util.parse_datetime(ts_str)
         return None
 
     def _handle_climate_update(self, event):
