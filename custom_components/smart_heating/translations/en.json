@@ -22,11 +22,15 @@
     "options": {
         "step": {
             "init": {
-                "title": "Configure Smart Heating",
+                "title": "Smart Heating Settings",
+                "description": "Adjust your heating logic below.",
                 "data": {
                     "heater_entity_id": "Boiler Switch",
                     "sensor_entity_id": "Room Temperature Sensor",
-                    "schedule_entity_id": "Heating Schedule"
+                    "schedule_entity_id": "Heating Schedule",
+                    "enable_preheat": "Enable Smart Pre-heating",
+                    "enable_overshoot": "Enable Overshoot Protection",
+                    "enable_learning": "Enable Adaptive Learning"
                 }
             }
         }
