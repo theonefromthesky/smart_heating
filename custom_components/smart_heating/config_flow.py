@@ -66,20 +66,26 @@ class SmartHeatingOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        # Pre-fill with existing data
-        current_config = self.config_entry.data
+        # Get current values or set defaults
+        options = self.config_entry.options
         
-        # Allow users to change entities after setup
+        # Schema for the Configure menu
         schema = vol.Schema({
-            vol.Required(CONF_HEATER, default=current_config.get(CONF_HEATER)): selector.EntitySelector(
+            # Allow changing entities
+            vol.Required(CONF_HEATER, default=options.get(CONF_HEATER, self.config_entry.data.get(CONF_HEATER))): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
             ),
-            vol.Required(CONF_SENSOR, default=current_config.get(CONF_SENSOR)): selector.EntitySelector(
+            vol.Required(CONF_SENSOR, default=options.get(CONF_SENSOR, self.config_entry.data.get(CONF_SENSOR))): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
-            vol.Optional(CONF_SCHEDULE, default=current_config.get(CONF_SCHEDULE)): selector.EntitySelector(
+            vol.Optional(CONF_SCHEDULE, default=options.get(CONF_SCHEDULE, self.config_entry.data.get(CONF_SCHEDULE))): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="schedule")
             ),
+            
+            # The Toggles you wanted
+            vol.Required(CONF_ENABLE_PREHEAT, default=options.get(CONF_ENABLE_PREHEAT, True)): bool,
+            vol.Required(CONF_ENABLE_OVERSHOOT, default=options.get(CONF_ENABLE_OVERSHOOT, True)): bool,
+            vol.Required(CONF_ENABLE_LEARNING, default=options.get(CONF_ENABLE_LEARNING, True)): bool,
         })
 
         return self.async_show_form(step_id="init", data_schema=schema)
