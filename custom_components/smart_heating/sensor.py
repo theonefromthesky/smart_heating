@@ -1,14 +1,10 @@
-"""Sensors to expose internal learned values of Smart Heating."""
 from homeassistant.components.sensor import SensorEntity, SensorStateClass, SensorDeviceClass
 from homeassistant.const import UnitOfTemperature, UnitOfTime
 import homeassistant.helpers.entity_registry
-# FIX: Import this function directly
 from homeassistant.helpers.event import async_track_state_change_event
-
 from .const import DOMAIN
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    """Set up the diagnostic sensors."""
     async_add_entities([
         HeatingDiagnosticSensor(config_entry, "Heat Up Rate", "learned_heat_up_rate", "°C/min"),
         HeatingDiagnosticSensor(config_entry, "Heat Loss Rate", "learned_heat_loss_rate", "°C/min"),
@@ -17,8 +13,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     ])
 
 class HeatingDiagnosticSensor(SensorEntity):
-    """Sensor that reads simple attributes from the main Climate entity."""
-
     def __init__(self, config_entry, name_suffix, attribute, unit, device_class=None):
         self._config_entry = config_entry
         self._attr_name = f"Smart Heating {name_suffix}"
@@ -30,7 +24,6 @@ class HeatingDiagnosticSensor(SensorEntity):
         self._climate_entity_id = None
 
     async def async_added_to_hass(self):
-        """Find parent climate entity and subscribe."""
         registry = homeassistant.helpers.entity_registry.async_get(self.hass)
         entries = homeassistant.helpers.entity_registry.async_entries_for_config_entry(
             registry, self._config_entry.entry_id
@@ -39,9 +32,7 @@ class HeatingDiagnosticSensor(SensorEntity):
             if entry.domain == "climate":
                 self._climate_entity_id = entry.entity_id
                 break
-        
         if self._climate_entity_id:
-             # FIX: Use the imported function
              self.async_on_remove(
                 async_track_state_change_event(
                     self.hass, [self._climate_entity_id], self._handle_climate_update
@@ -60,8 +51,6 @@ class HeatingDiagnosticSensor(SensorEntity):
         self.async_write_ha_state()
 
 class NextFireSensor(SensorEntity):
-    """Predicts exactly when the boiler will fire next."""
-
     def __init__(self, config_entry):
         self._config_entry = config_entry
         self._attr_name = "Smart Heating Next Fire Time"
@@ -70,7 +59,6 @@ class NextFireSensor(SensorEntity):
         self._climate_entity_id = None
 
     async def async_added_to_hass(self):
-        """Link to climate entity."""
         registry = homeassistant.helpers.entity_registry.async_get(self.hass)
         entries = homeassistant.helpers.entity_registry.async_entries_for_config_entry(
             registry, self._config_entry.entry_id
@@ -79,9 +67,7 @@ class NextFireSensor(SensorEntity):
             if entry.domain == "climate":
                 self._climate_entity_id = entry.entity_id
                 break
-        
         if self._climate_entity_id:
-             # FIX: Use the imported function
              self.async_on_remove(
                 async_track_state_change_event(
                     self.hass, [self._climate_entity_id], self._handle_climate_update
