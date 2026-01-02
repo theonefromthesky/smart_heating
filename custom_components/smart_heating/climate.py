@@ -26,13 +26,10 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_HEATER,
-    CONF_SENSOR,
-    CONF_SCHEDULE,
-    DEFAULT_HEAT_UP_RATE,
-    DEFAULT_HEAT_LOSS_RATE,
-    DEFAULT_OVERSHOOT,
-    DEFAULT_HYSTERESIS,
+    CONF_HEATER, CONF_SENSOR, CONF_SCHEDULE,
+    CONF_ENABLE_PREHEAT, CONF_ENABLE_OVERSHOOT, CONF_ENABLE_LEARNING,
+    DEFAULT_HEAT_UP_RATE, DEFAULT_HEAT_LOSS_RATE,
+    DEFAULT_OVERSHOOT, DEFAULT_HYSTERESIS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -353,4 +350,5 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
 
     def _get_next_schedule_start_str(self):
         ns = self._get_next_schedule_start()
+
         return ns.isoformat() if ns else "None"
