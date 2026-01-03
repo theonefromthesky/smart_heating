@@ -1,6 +1,6 @@
 from homeassistant.const import Platform
 
-DOMAIN = "smart_heating"
+DOMAIN = "smart_learning_thermostat"
 PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
 
 CONF_HEATER = "heater_entity_id"
@@ -31,3 +31,4 @@ DEFAULT_MAX_PREHEAT_TIME = 180
 DEFAULT_MIN_BURN_TIME = 10
 DEFAULT_COMFORT_TEMP = 20.0
 DEFAULT_SETBACK_TEMP = 15.0
+
