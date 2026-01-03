@@ -1,0 +1,116 @@
+flowchart TD
+    %% Nodes
+    Start([Trigger: Timer, Sensor Change, or Event])
+    
+    subgraph Init [Initialization & Safety Checks]
+        CheckSensors{Sensors Valid?}
+        CheckMode{HVAC Mode?}
+        BoilerOffSafety[Set Boiler OFF]
+    end
+
+    subgraph Sched [1. Schedule & Manual Reset]
+        CheckSchedChange{Did Schedule State<br/>Change?}
+        ResetManual[Reset Manual Mode to FALSE]
+        KeepManual[Keep Current Manual Mode State]
+    end
+
+    subgraph Target [2. Target Temperature Calculation]
+        IsManual{Manual Mode Active?}
+        KeepTarget[Use User Set Target]
+        CheckSchedState{Is Schedule ON?}
+        SetComfort[Target = Comfort Temp]
+        CheckPreheat{Preheat Enabled?}
+        CalcPreheat{Is Preheating Needed Now?<br/>(Target - Current) / HeatRate}
+        SetPreheat[Target = Comfort Temp<br/>Mode = Preheat]
+        SetSetback[Target = Setback Temp]
+    end
+
+    subgraph Control [3. Boiler Control Logic]
+        CalcPoints[Calculate Points:<br/>On Point = Target - Hysteresis<br/>Off Point = Target - Overshoot]
+        IsActive{Is Boiler Currently ON?}
+        
+        %% Heating Branch
+        CheckOffPoint{Current Temp >= Off Point?}
+        CheckSafety{Run Time > Max On Time?}
+        TurnOff[Turn Boiler OFF]
+        StayOn[Stay ON]
+        
+        %% Idle Branch
+        CheckOnPoint{Current Temp <= On Point?}
+        TurnOn[Turn Boiler ON]
+        StayOff[Stay OFF]
+    end
+
+    subgraph Learn [4. Learning Logic]
+        IsLearning{Learning Enabled?}
+        DidTurnOff{Did Boiler Just Turn OFF?}
+        CheckMinBurn{Run Time > Min Burn Time?}
+        CalcRate[Update Heat Up Rate<br/>Weighted Average]
+        TrackPeak[Start Tracking Peak<br/>for Overshoot Calc]
+    end
+
+    %% Connections
+    Start --> CheckSensors
+    CheckSensors -- No --> BoilerOffSafety
+    CheckSensors -- Yes --> CheckMode
+    CheckMode -- OFF --> BoilerOffSafety
+    CheckMode -- HEAT --> CheckSchedChange
+
+    BoilerOffSafety --> End([End Loop])
+
+    CheckSchedChange -- Yes --> ResetManual
+    CheckSchedChange -- No --> KeepManual
+    ResetManual --> IsManual
+    KeepManual --> IsManual
+
+    IsManual -- Yes --> KeepTarget
+    IsManual -- No --> CheckSchedState
+
+    CheckSchedState -- Yes --> SetComfort
+    CheckSchedState -- No --> CheckPreheat
+    CheckPreheat -- Yes --> CalcPreheat
+    CheckPreheat -- No --> SetSetback
+
+    CalcPreheat -- Yes --> SetPreheat
+    CalcPreheat -- No --> SetSetback
+
+    KeepTarget --> CalcPoints
+    SetComfort --> CalcPoints
+    SetPreheat --> CalcPoints
+    SetSetback --> CalcPoints
+
+    CalcPoints --> IsActive
+    
+    %% Heating Logic
+    IsActive -- Yes --> CheckOffPoint
+    CheckOffPoint -- Yes --> TurnOff
+    CheckOffPoint -- No --> CheckSafety
+    CheckSafety -- Yes --> TurnOff
+    CheckSafety -- No --> StayOn
+
+    %% Idle Logic
+    IsActive -- No --> CheckOnPoint
+    CheckOnPoint -- Yes --> TurnOn
+    CheckOnPoint -- No --> StayOff
+
+    %% Actions
+    TurnOff --> IsLearning
+    TurnOn --> End
+    StayOn --> End
+    StayOff --> End
+
+    %% Learning
+    IsLearning -- Yes --> DidTurnOff
+    IsLearning -- No --> End
+    DidTurnOff -- Yes --> CheckMinBurn
+    DidTurnOff -- No --> End
+    CheckMinBurn -- Yes --> CalcRate
+    CalcRate --> TrackPeak
+    CheckMinBurn -- No --> End
+    TrackPeak --> End
+    
+    %% Styling
+    style BoilerOffSafety fill:#f96,stroke:#333,stroke-width:2px
+    style TurnOff fill:#f96,stroke:#333,stroke-width:2px
+    style TurnOn fill:#9f6,stroke:#333,stroke-width:2px
+    style CalcPreheat fill:#acf,stroke:#333,stroke-width:2px
