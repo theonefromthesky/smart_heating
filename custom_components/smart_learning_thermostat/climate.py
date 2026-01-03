@@ -234,21 +234,27 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
 
         now = dt_util.now()
         target = self._target_temp
+        preheat_active = False  # Initialize as False
         
         # --- PREHEAT LOGIC ---
-        preheat_active = False
         if self._enable_preheat and self._schedule_entity_id:
             sched_state = self.hass.states.get(self._schedule_entity_id)
+            
+            # Only check for preheat if the schedule is currently OFF
             if sched_state and sched_state.state == STATE_OFF:
                 next_start = self._get_next_schedule_start()
                 if next_start:
+                    # Calculate minutes needed to climb from current to comfort
                     diff = self._comfort_temp - self._current_temp
                     if diff > 0:
                         minutes_needed = diff / self._heat_up_rate
+                        # Cap preheat to the user-defined maximum
                         minutes_needed = min(minutes_needed, self._max_preheat_time)
                         start_time = next_start - timedelta(minutes=minutes_needed)
                         
+                        # TRIGGER POINT: If we are at or past the calculated start time
                         if now >= start_time:
+                            _LOGGER.info("Preheat triggered: Current time past calculated start.")
                             target = self._comfort_temp
                             preheat_active = True
                             self._attr_preset_mode = "preheat"
@@ -261,16 +267,23 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         effective_cutoff = target - overshoot_adj
         
         if self._is_active_heating:
+            # If heating, check if we hit the cutoff (adjusted for overshoot)
             if self._current_temp >= effective_cutoff:
-                _LOGGER.info(f"Target reached. Turning OFF.")
+                _LOGGER.info(f"Target reached ({self._current_temp} >= {effective_cutoff}). Turning OFF.")
                 await self._set_boiler(False)
+            # Safety timeout check
             elif self._last_on_time and (now.timestamp() - self._last_on_time) > self._max_on_time:
                  _LOGGER.warning("Safety: Max boiler runtime exceeded. Forcing OFF.")
                  await self._set_boiler(False)
         else:
+            # Calculate the normal turn-on point (Target - Hysteresis)
             on_point = target - self._hysteresis
-            if self._current_temp <= on_point:
-                 _LOGGER.info(f"Turning ON.")
+            
+            # CRITICAL FIX: Boiler turns on if:
+            # 1. We are in the preheat window (preheat_active is True)
+            # 2. OR current temp is below the hysteresis point
+            if preheat_active or self._current_temp <= on_point:
+                 _LOGGER.info(f"Turning ON (Reason: Preheat={preheat_active}, Temp={self._current_temp}, OnPoint={on_point})")
                  await self._set_boiler(True)
 
         self.async_write_ha_state()
@@ -358,4 +371,5 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         
         now = dt_util.now()
         if fire_time < now: return now.isoformat()
+
         return fire_time.isoformat()
