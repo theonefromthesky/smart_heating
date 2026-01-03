@@ -6,7 +6,7 @@ import homeassistant.helpers.config_validation as cv
 
 from .const import DOMAIN
 
-class SmartLearningThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class SmartHeatingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Smart Learning Thermostat."""
     VERSION = 1
 
@@ -113,4 +113,5 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(schema)
+
         )
