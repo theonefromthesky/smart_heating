@@ -64,7 +64,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        self.config_entry = config_entry
+        # FIXED: Do not manually set self.config_entry. 
+        # The parent class manages it automatically as a property.
+        pass
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
@@ -72,6 +74,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=user_input)
 
         # Helper to get current value, initial value, or a hard default
+        # self.config_entry is available automatically via the parent class
         def get_opt(key, default):
             return self.config_entry.options.get(key, self.config_entry.data.get(key, default))
 
