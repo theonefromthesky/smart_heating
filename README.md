@@ -1,64 +1,54 @@
-Smart Learning Thermostat for Home Assistant
-A modern, proactive heating controller for Home Assistant that learns your home's thermal characteristics to provide precise comfort while saving energy. Similar to a Nest thermostat, it predicts exactly when to fire your boiler to reach your target temperature right on time.
+# Smart Learning Thermostat for Home Assistant
 
-🚀 Key Features
-Adaptive Learning: Automatically calculates your home's Heat Up Rate and Heat Loss Rate based on real-world performance.
+![Smart Learning Thermostat Logo](logo.png)
 
-Smart Pre-heating: Uses learned data to start heating early, ensuring your room is at the Comfort Temperature exactly when your schedule starts.
+The **Smart Learning Thermostat** is a proactive heating controller for Home Assistant. Inspired by modern smart thermostats, it learns your home's thermal characteristics to ensure your rooms reach the desired temperature exactly when you need them to, while minimizing energy waste.
 
-Overshoot Protection: Learns how much your radiators continue to heat the room after the boiler is off and adjusts the cutoff point to prevent wasting gas.
+## 🌟 Key Features
 
-Next-Fire Prediction: A dedicated sensor tells you exactly when the heating will next turn on (e.g., "07:15" or "Mon 06:30").
+* **Adaptive Learning**: Automatically calculates and refines your home's **Heat Up Rate** and **Heat Loss Rate** based on actual performance data.
+* **Proactive Pre-heating**: Predicts how long it will take to reach your `Comfort Temperature` and starts the boiler early so your home is ready the moment your schedule begins.
+* **Overshoot Protection**: Monitors "thermal lag" and shuts off the boiler before the target is reached to prevent the room from becoming too hot.
+* **Intelligent Prediction**: A dedicated sensor provides the exact time for the next heating cycle, adjusted for preheating (e.g., "07:15" or "Mon 06:30").
+* **Hysteresis Management**: Built-in adjustable hysteresis prevents boiler short-cycling, protecting your hardware.
 
-Hysteresis Control: Prevents "short-cycling" of your boiler, extending the life of your heating system.
+## 📊 Diagnostic & Prediction Sensors
 
-Diagnostic Sensors: Includes 4 built-in sensors to monitor your home's thermal efficiency in real-time.
+The integration automatically creates diagnostic entities to give you full visibility into your heating system's efficiency:
 
-🛠️ Diagnostic Sensors Included
-Once installed, the integration provides the following diagnostic entities:
+* **Heat Up Rate**: Measures thermal gain in **°C/min**.
+* **Heat Loss Rate**: Measures how fast your room cools when the heating is off (**°C/min**).
+* **Learned Overshoot**: Displays the calculated thermal overshoot in **°C**.
+* **Next Fire Time**: Displays "Now" if active, "Preheating" during early starts, or a formatted timestamp for the next predicted run.
 
-Heat Up Rate: How many °C your room gains per minute.
+## ⚙️ Configuration Parameters
 
-Heat Loss Rate: How fast your room cools down when the heating is off.
+Accessible via the **Options Flow**, you can tune your thermostat without restarting:
 
-Learned Overshoot: The "thermal lag" of your system in °C.
+* **Comfort Temperature**: Your target temperature for active schedule periods.
+* **Setback Temperature**: The energy-saving "economy" temperature used when the schedule is off.
+* **Hysteresis**: The temperature buffer to prevent frequent switching.
+* **Max Boiler Runtime**: A safety watchdog that forces the boiler off if a cycle runs too long.
+* **Min Burn Time**: The minimum runtime required for the system to trust and "learn" from a heating cycle.
 
-Next Fire Time: The calculated start time for the next heating cycle.
+## 📦 Installation
 
-📦 Installation
-Option 1: HACS (Recommended)
-Open HACS in your Home Assistant instance.
+### HACS (Recommended)
+1. Open **HACS** in your Home Assistant instance.
+2. Click the three dots in the top right and select **Custom repositories**.
+3. Paste your GitHub URL and select **Integration** as the category.
+4. Click **Download**, then restart Home Assistant.
 
-Click the three dots in the top right and select Custom repositories.
+### Manual
+1. Download the `smart_learning_thermostat` folder.
+2. Copy it to your `custom_components/` directory.
+3. Restart Home Assistant.
 
-Paste your GitHub URL and select Integration as the category.
+## 🚀 Getting Started
 
-Click Install.
+1. Navigate to **Settings** > **Devices & Services**.
+2. Click **Add Integration** and search for **Smart Learning Thermostat**.
+3. Define your **Heater Switch**, **Temperature Sensor**, and optional **Schedule Entity**.
 
-Restart Home Assistant.
-
-Option 2: Manual
-Download the smart_learning_thermostat folder from this repository.
-
-Copy it into your custom_components/ directory.
-
-Restart Home Assistant.
-
-⚙️ Setup & Configuration
-Go to Settings > Devices & Services.
-
-Click Add Integration and search for Smart Learning Thermostat.
-
-Follow the UI prompts to select your:
-
-Boiler Switch: The switch or actuator that turns your heater on.
-
-Temperature Sensor: The main sensor for the room.
-
-Schedule Entity (Optional): A Home Assistant schedule or input_boolean that defines your "On" times.
-
-Options Flow
-You can change all parameters (Comfort Temp, Setback Temp, Max Runtime) at any time by clicking Configure on the integration page.
-
-📝 License
-This project is licensed under the MIT License - see the LICENSE file for details.
+## 📝 License
+This project is licensed under the MIT License.
