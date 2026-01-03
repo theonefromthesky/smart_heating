@@ -1,10 +1,18 @@
+Unable to render rich display
+
+Parse error on line 28:
+...ate Time Needed<br/>(Diff / HeatUpRate)]
+-----------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got 'PS'
+
+For more information, see https://docs.github.com/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams#creating-mermaid-diagrams
+
 flowchart TD
     %% --- Styles ---
     classDef trigger fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
     classDef decision fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
     classDef action fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px;
     classDef state fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
-    classDef fail fill:#ffcdd2,stroke:#c62828,stroke-width:2px;
 
     %% --- Entry Points ---
     Start([Trigger: Timer / Sensor Update / Schedule Change]):::trigger
