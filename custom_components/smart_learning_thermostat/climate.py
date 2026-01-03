@@ -24,10 +24,30 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
-# Default Values
-DEFAULT_HEAT_UP_RATE = 0.1
-DEFAULT_HEAT_LOSS_RATE = 0.1
-DEFAULT_OVERSHOOT = 0.0
+# Import your custom constants to ensure sync
+from .const import (
+    CONF_HEATER,
+    CONF_SENSOR,
+    CONF_SCHEDULE,
+    CONF_ENABLE_PREHEAT,
+    CONF_ENABLE_OVERSHOOT,
+    CONF_ENABLE_LEARNING,
+    CONF_MAX_ON_TIME,
+    CONF_MAX_PREHEAT_TIME,
+    CONF_HYSTERESIS,
+    CONF_MIN_BURN_TIME,
+    CONF_COMFORT_TEMP,
+    CONF_SETBACK_TEMP,
+    DEFAULT_HEAT_UP_RATE,
+    DEFAULT_HEAT_LOSS_RATE,
+    DEFAULT_OVERSHOOT,
+    DEFAULT_HYSTERESIS,
+    DEFAULT_MAX_ON_TIME,
+    DEFAULT_MAX_PREHEAT_TIME,
+    DEFAULT_MIN_BURN_TIME,
+    DEFAULT_COMFORT_TEMP,
+    DEFAULT_SETBACK_TEMP,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,9 +82,9 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         self._current_temp = None
         self._is_active_heating = False 
         
-        # --- NEW: Manual Mode Logic Flags ---
-        self._manual_mode = False        # True if user touched the dial
-        self._last_schedule_state = None # To track ON/OFF transitions
+        # Logic Flags
+        self._manual_mode = False        
+        self._last_schedule_state = None 
         
         # Learned Values (Persistent)
         self._heat_up_rate = DEFAULT_HEAT_UP_RATE
@@ -79,7 +99,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         self._peak_temp_observed = None
 
     def _load_config_options(self):
-        """Read settings safely: Options -> Data -> Default."""
+        """Read settings safely using constants."""
         options = self._config_entry.options
         data = self._config_entry.data
 
@@ -87,24 +107,25 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             return options.get(key, data.get(key, default))
 
         # --- Entities ---
-        self._heater_entity_id = get_val("heater_entity_id")
-        self._sensor_entity_id = get_val("sensor_entity_id")
-        self._schedule_entity_id = get_val("schedule_entity_id")
+        self._heater_entity_id = get_val(CONF_HEATER)
+        self._sensor_entity_id = get_val(CONF_SENSOR)
+        self._schedule_entity_id = get_val(CONF_SCHEDULE)
         
         # --- Toggles ---
-        self._enable_preheat = get_val("enable_preheat", False)
-        self._enable_overshoot = get_val("enable_overshoot", False)
-        self._enable_learning = get_val("enable_learning", False)
+        self._enable_preheat = get_val(CONF_ENABLE_PREHEAT, False)
+        self._enable_overshoot = get_val(CONF_ENABLE_OVERSHOOT, False)
+        self._enable_learning = get_val(CONF_ENABLE_LEARNING, False)
         
         # --- Numeric Settings ---
-        self._hysteresis = get_val("hysteresis", 0.5)
-        self._max_on_time = get_val("max_on_time", 60) * 60 
-        self._max_preheat_time = get_val("max_preheat_time", 60)
-        self._min_burn_time = get_val("min_burn_time", 10)
+        self._hysteresis = get_val(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)
+        # Convert max_on_time minutes to seconds for internal logic
+        self._max_on_time = get_val(CONF_MAX_ON_TIME, DEFAULT_MAX_ON_TIME) * 60 
+        self._max_preheat_time = get_val(CONF_MAX_PREHEAT_TIME, DEFAULT_MAX_PREHEAT_TIME)
+        self._min_burn_time = get_val(CONF_MIN_BURN_TIME, DEFAULT_MIN_BURN_TIME)
         
         # --- Temperatures ---
-        self._comfort_temp = get_val("comfort_temp", 20.0)
-        self._setback_temp = get_val("setback_temp", 16.0)
+        self._comfort_temp = get_val(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
+        self._setback_temp = get_val(CONF_SETBACK_TEMP, DEFAULT_SETBACK_TEMP)
 
     async def async_added_to_hass(self):
         """Run when entity is added."""
@@ -115,6 +136,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         if last_state:
             self._hvac_mode = last_state.state if last_state.state in self._attr_hvac_modes else HVACMode.OFF
             self._target_temp = last_state.attributes.get("target_temp", self._setback_temp)
+            # Restore learned values or fall back to const.py defaults
             self._heat_up_rate = last_state.attributes.get("learned_heat_up_rate", DEFAULT_HEAT_UP_RATE)
             self._heat_loss_rate = last_state.attributes.get("learned_heat_loss_rate", DEFAULT_HEAT_LOSS_RATE)
             self._overshoot_temp = last_state.attributes.get("learned_overshoot", DEFAULT_OVERSHOOT)
@@ -178,7 +200,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         """User manually sets temp (Override)."""
         if (temp := kwargs.get(ATTR_TEMPERATURE)) is not None:
             self._target_temp = temp
-            self._manual_mode = True  # <--- LOCK MANUAL MODE
+            self._manual_mode = True  # Lock Manual Mode
             self.async_write_ha_state()
             await self._run_control_logic()
 
@@ -190,7 +212,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         await self._run_control_logic()
 
     async def async_set_preset_mode(self, preset_mode):
-        """Handle manual preset mode changes."""
         if preset_mode in self._attr_preset_modes:
             self._attr_preset_mode = preset_mode
             self.async_write_ha_state()
@@ -210,8 +231,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
 
     @callback
     async def _async_control_loop_event(self, event):
-        """Triggered ONLY when schedule changes state."""
-        # Logic is handled inside _run_control_logic to ensure single truth
         await self._run_control_logic()
 
     async def _async_control_loop(self, now=None): 
@@ -230,24 +249,20 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             sched_state = self.hass.states.get(self._schedule_entity_id)
             current_state = sched_state.state if sched_state else STATE_OFF
             
-            # If schedule flipped (ON->OFF or OFF->ON), release Manual Mode
             if self._last_schedule_state and current_state != self._last_schedule_state:
                 _LOGGER.info(f"Schedule changed to {current_state}. Resetting to Auto Mode.")
                 self._manual_mode = False 
             
             self._last_schedule_state = current_state
 
-        # --- 2. CALCULATE "AUTO" TARGET (Only if NOT in Manual Mode) ---
+        # --- 2. CALCULATE "AUTO" TARGET ---
         if not self._manual_mode:
-            # Default to Setback (Economy)
             new_target = self._setback_temp
             self._attr_preset_mode = "none"
 
-            # A. Schedule is ON
             if self._schedule_entity_id and self._last_schedule_state == STATE_ON:
                 new_target = self._comfort_temp
             
-            # B. Schedule is OFF (Check Preheat)
             elif self._enable_preheat and self._schedule_entity_id:
                 next_start = self._get_next_schedule_start()
                 if next_start:
@@ -256,33 +271,25 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
                         minutes_needed = diff / self._heat_up_rate
                         minutes_needed = min(minutes_needed, self._max_preheat_time)
                         
-                        # If we are within the preheat window, raise the target NOW
                         if now >= (next_start - timedelta(minutes=minutes_needed)):
                             new_target = self._comfort_temp
                             self._attr_preset_mode = "preheat"
             
-            # Commit the calculated target
             self._target_temp = new_target
 
-        # --- 3. BOILER CONTROL (The Reaction) ---
-        # The boiler blindly follows self._target_temp
-        
+        # --- 3. BOILER CONTROL ---
         overshoot = self._overshoot_temp if self._enable_overshoot else 0.0
         off_point = self._target_temp - overshoot
         on_point = self._target_temp - self._hysteresis
 
         if self._is_active_heating:
-            # Turn OFF if we hit the target
             if self._current_temp >= off_point:
                 _LOGGER.info(f"Target reached ({self._current_temp} >= {off_point}). Boiler OFF.")
                 await self._set_boiler(False)
-            
-            # Safety Check
             elif self._last_on_time and (now.timestamp() - self._last_on_time) > self._max_on_time:
                 _LOGGER.warning("Safety: Max boiler runtime exceeded. Forcing OFF.")
                 await self._set_boiler(False)
         else:
-            # Turn ON if we drop below hysteresis
             if self._current_temp <= on_point:
                  _LOGGER.info(f"Demand detected ({self._current_temp} <= {on_point}). Boiler ON.")
                  await self._set_boiler(True)
@@ -316,11 +323,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         if duration_mins < self._min_burn_time: return 
         
         delta_temp = self._current_temp - self._heat_start_temp
-        
-        # FIX: Ignore if the jump is impossibly high (Sensor Error)
-        if delta_temp > 1.5: 
-             _LOGGER.warning("Ignoring learning data: Temperature jumped > 1.5C (Possible sensor error).")
-             return
+        if delta_temp > 1.5: return # Sensor fault protection
         if delta_temp < 0.2: return
 
         calculated_rate = delta_temp / duration_mins
@@ -347,7 +350,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         return None
 
     def _calculate_next_fire_time(self):
-        """Estimate when the boiler will next fire."""
         if self._is_active_heating: return dt_util.now().isoformat()
         
         if self._schedule_entity_id:
