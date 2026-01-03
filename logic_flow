@@ -1,116 +1,75 @@
 flowchart TD
-    %% Nodes
-    Start([Trigger: Timer, Sensor Change, or Event])
+    %% --- Styles ---
+    classDef trigger fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef decision fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
+    classDef action fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px;
+    classDef state fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
+    classDef fail fill:#ffcdd2,stroke:#c62828,stroke-width:2px;
+
+    %% --- Entry Points ---
+    Start([Trigger: Timer / Sensor Update / Schedule Change]):::trigger
+    Start --> CheckHVAC
+
+    %% --- Core Logic ---
+    CheckHVAC{HVAC Mode is OFF?}:::decision
+    CheckHVAC -- Yes --> BoilerOFF[Ensure Boiler OFF]:::action
+    CheckHVAC -- No --> CheckSchedChange
+
+    CheckSchedChange{Did Schedule State<br/>Change?}:::decision
+    CheckSchedChange -- Yes --> ResetManual[Reset Manual Mode<br/>Return to Auto]:::action
+    CheckSchedChange -- No --> CheckManual
+
+    ResetManual --> CheckManual
     
-    subgraph Init [Initialization & Safety Checks]
-        CheckSensors{Sensors Valid?}
-        CheckMode{HVAC Mode?}
-        BoilerOffSafety[Set Boiler OFF]
-    end
+    %% --- Target Calculation ---
+    CheckManual{Manual Override<br/>Active?}:::decision
+    CheckManual -- Yes --> KeepTarget[Keep User Target]:::state
+    CheckManual -- No --> CheckSchedState
 
-    subgraph Sched [1. Schedule & Manual Reset]
-        CheckSchedChange{Did Schedule State<br/>Change?}
-        ResetManual[Reset Manual Mode to FALSE]
-        KeepManual[Keep Current Manual Mode State]
-    end
-
-    subgraph Target [2. Target Temperature Calculation]
-        IsManual{Manual Mode Active?}
-        KeepTarget[Use User Set Target]
-        CheckSchedState{Is Schedule ON?}
-        SetComfort[Target = Comfort Temp]
-        CheckPreheat{Preheat Enabled?}
-        CalcPreheat{Is Preheating Needed Now?<br/>(Target - Current) / HeatRate}
-        SetPreheat[Target = Comfort Temp<br/>Mode = Preheat]
-        SetSetback[Target = Setback Temp]
-    end
-
-    subgraph Control [3. Boiler Control Logic]
-        CalcPoints[Calculate Points:<br/>On Point = Target - Hysteresis<br/>Off Point = Target - Overshoot]
-        IsActive{Is Boiler Currently ON?}
+    subgraph Auto_Mode [Auto Mode Logic]
+        CheckSchedState{Schedule Entity<br/>is ON?}:::decision
+        CheckSchedState -- Yes --> SetComfort[Target = Comfort Temp]:::state
+        CheckSchedState -- No --> CheckPreheat
         
-        %% Heating Branch
-        CheckOffPoint{Current Temp >= Off Point?}
-        CheckSafety{Run Time > Max On Time?}
-        TurnOff[Turn Boiler OFF]
-        StayOn[Stay ON]
+        CheckPreheat{Preheat Enabled?}:::decision
+        CheckPreheat -- No --> SetSetback[Target = Setback Temp]:::state
+        CheckPreheat -- Yes --> CalcPreheat[[Calculate Time Needed<br/>(Diff / HeatUpRate)]]
         
-        %% Idle Branch
-        CheckOnPoint{Current Temp <= On Point?}
-        TurnOn[Turn Boiler ON]
-        StayOff[Stay OFF]
+        CalcPreheat --> CheckTime{Is it time to<br/>Heat Up?}:::decision
+        CheckTime -- Yes --> SetPreheat[Target = Comfort Temp<br/>(Preheat Mode)]:::state
+        CheckTime -- No --> SetSetback
     end
 
-    subgraph Learn [4. Learning Logic]
-        IsLearning{Learning Enabled?}
-        DidTurnOff{Did Boiler Just Turn OFF?}
-        CheckMinBurn{Run Time > Min Burn Time?}
-        CalcRate[Update Heat Up Rate<br/>Weighted Average]
-        TrackPeak[Start Tracking Peak<br/>for Overshoot Calc]
-    end
-
-    %% Connections
-    Start --> CheckSensors
-    CheckSensors -- No --> BoilerOffSafety
-    CheckSensors -- Yes --> CheckMode
-    CheckMode -- OFF --> BoilerOffSafety
-    CheckMode -- HEAT --> CheckSchedChange
-
-    BoilerOffSafety --> End([End Loop])
-
-    CheckSchedChange -- Yes --> ResetManual
-    CheckSchedChange -- No --> KeepManual
-    ResetManual --> IsManual
-    KeepManual --> IsManual
-
-    IsManual -- Yes --> KeepTarget
-    IsManual -- No --> CheckSchedState
-
-    CheckSchedState -- Yes --> SetComfort
-    CheckSchedState -- No --> CheckPreheat
-    CheckPreheat -- Yes --> CalcPreheat
-    CheckPreheat -- No --> SetSetback
-
-    CalcPreheat -- Yes --> SetPreheat
-    CalcPreheat -- No --> SetSetback
-
+    %% --- Hysteresis Logic ---
     KeepTarget --> CalcPoints
     SetComfort --> CalcPoints
-    SetPreheat --> CalcPoints
     SetSetback --> CalcPoints
+    SetPreheat --> CalcPoints
 
-    CalcPoints --> IsActive
+    CalcPoints[Calculate Thresholds<br/>ON Point = Target - Hysteresis<br/>OFF Point = Target - Overshoot]:::action
+    CalcPoints --> CheckBoilerState
+
+    CheckBoilerState{Is Boiler<br/>Currently ON?}:::decision
     
-    %% Heating Logic
-    IsActive -- Yes --> CheckOffPoint
-    CheckOffPoint -- Yes --> TurnOff
-    CheckOffPoint -- No --> CheckSafety
-    CheckSafety -- Yes --> TurnOff
-    CheckSafety -- No --> StayOn
-
-    %% Idle Logic
-    IsActive -- No --> CheckOnPoint
-    CheckOnPoint -- Yes --> TurnOn
-    CheckOnPoint -- No --> StayOff
-
-    %% Actions
-    TurnOff --> IsLearning
-    TurnOn --> End
-    StayOn --> End
-    StayOff --> End
-
-    %% Learning
-    IsLearning -- Yes --> DidTurnOff
-    IsLearning -- No --> End
-    DidTurnOff -- Yes --> CheckMinBurn
-    DidTurnOff -- No --> End
-    CheckMinBurn -- Yes --> CalcRate
-    CalcRate --> TrackPeak
-    CheckMinBurn -- No --> End
-    TrackPeak --> End
+    %% --- Boiler is ON ---
+    CheckBoilerState -- Yes --> CheckTargetReached
+    CheckTargetReached{Current Temp >=<br/>OFF Point?}:::decision
+    CheckTargetReached -- Yes --> TurnOff[Turn Boiler OFF]:::action
+    CheckTargetReached -- No --> CheckSafety
     
-    %% Styling
-    style BoilerOffSafety fill:#f96,stroke:#333,stroke-width:2px
-    style TurnOff fill:#f96,stroke:#333,stroke-width:2px
-    style TurnOn fill:#9f6,stroke:#333,stroke-width:2px
-    style CalcPreheat fill:#acf,stroke:#333,stroke-width:2px
+    CheckSafety{Runtime ><br/>Max On Time?}:::decision
+    CheckSafety -- Yes (Safety Cutoff) --> TurnOff
+    CheckSafety -- No --> DoNothing[Maintain State]:::state
+
+    %% --- Boiler is OFF ---
+    CheckBoilerState -- No --> CheckDemand
+    CheckDemand{Current Temp <=<br/>ON Point?}:::decision
+    CheckDemand -- Yes --> TurnOn[Turn Boiler ON]:::action
+    CheckDemand -- No --> DoNothing
+
+    %% --- Learning Cycle ---
+    TurnOff -- Calculate Rate --> UpdateLearning[[Update Learned<br/>Heat Up Rate]]:::trigger
+    TurnOn -- Reset Timer --> End([End Loop]):::trigger
+    DoNothing --> End
+    UpdateLearning --> End
+    BoilerOFF --> End
