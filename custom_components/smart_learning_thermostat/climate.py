@@ -58,10 +58,13 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
 
         # Operational State
         self._hvac_mode = HVACMode.OFF
-        # FIX 1: Default to Setback Temp instead of Comfort
         self._target_temp = self._setback_temp 
         self._current_temp = None
         self._is_active_heating = False 
+        
+        # --- NEW: Manual Mode Logic Flags ---
+        self._manual_mode = False        # True if user touched the dial
+        self._last_schedule_state = None # To track ON/OFF transitions
         
         # Learned Values (Persistent)
         self._heat_up_rate = DEFAULT_HEAT_UP_RATE
@@ -111,7 +114,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         last_state = await self.async_get_last_state()
         if last_state:
             self._hvac_mode = last_state.state if last_state.state in self._attr_hvac_modes else HVACMode.OFF
-            # FIX 2: Restore to Setback if no previous target found
             self._target_temp = last_state.attributes.get("target_temp", self._setback_temp)
             self._heat_up_rate = last_state.attributes.get("learned_heat_up_rate", DEFAULT_HEAT_UP_RATE)
             self._heat_loss_rate = last_state.attributes.get("learned_heat_loss_rate", DEFAULT_HEAT_LOSS_RATE)
@@ -166,10 +168,8 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             "learned_overshoot": round(self._overshoot_temp, 2),
             "boiler_active": self._is_active_heating,
             "hysteresis": self._hysteresis,
-            "max_on_time_mins": self._max_on_time / 60,
+            "manual_mode": self._manual_mode,
             "next_fire_timestamp": self._calculate_next_fire_time(),
-            "comfort_temp": self._comfort_temp,
-            "setback_temp": self._setback_temp
         }
 
     # --- CONTROL METHODS ---
@@ -178,6 +178,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         """User manually sets temp (Override)."""
         if (temp := kwargs.get(ATTR_TEMPERATURE)) is not None:
             self._target_temp = temp
+            self._manual_mode = True  # <--- LOCK MANUAL MODE
             self.async_write_ha_state()
             await self._run_control_logic()
 
@@ -210,80 +211,80 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
     @callback
     async def _async_control_loop_event(self, event):
         """Triggered ONLY when schedule changes state."""
-        new_state = event.data.get("new_state")
-        if new_state is None: return
-
-        if new_state.state == STATE_ON:
-             _LOGGER.info(f"Schedule ON: Restoring Comfort Temp {self._comfort_temp}")
-             self._target_temp = self._comfort_temp
-        elif new_state.state == STATE_OFF:
-             _LOGGER.info(f"Schedule OFF: Restoring Setback Temp {self._setback_temp}")
-             self._target_temp = self._setback_temp
-             
-        self.async_write_ha_state()
+        # Logic is handled inside _run_control_logic to ensure single truth
         await self._run_control_logic()
 
     async def _async_control_loop(self, now=None): 
         await self._run_control_logic()
 
     async def _run_control_logic(self):
-        """The brain of the thermostat."""
+        """The brain of the thermostat (Single Source of Truth)."""
         if self._current_temp is None or self._hvac_mode == HVACMode.OFF:
             await self._set_boiler(False)
             return
 
         now = dt_util.now()
-        target = self._target_temp
-        preheat_active = False  # Initialize as False
-        
-        # --- PREHEAT LOGIC ---
-        if self._enable_preheat and self._schedule_entity_id:
+
+        # --- 1. DETECT SCHEDULE CHANGES (Reset Manual Mode) ---
+        if self._schedule_entity_id:
             sched_state = self.hass.states.get(self._schedule_entity_id)
+            current_state = sched_state.state if sched_state else STATE_OFF
             
-            # Only check for preheat if the schedule is currently OFF
-            if sched_state and sched_state.state == STATE_OFF:
+            # If schedule flipped (ON->OFF or OFF->ON), release Manual Mode
+            if self._last_schedule_state and current_state != self._last_schedule_state:
+                _LOGGER.info(f"Schedule changed to {current_state}. Resetting to Auto Mode.")
+                self._manual_mode = False 
+            
+            self._last_schedule_state = current_state
+
+        # --- 2. CALCULATE "AUTO" TARGET (Only if NOT in Manual Mode) ---
+        if not self._manual_mode:
+            # Default to Setback (Economy)
+            new_target = self._setback_temp
+            self._attr_preset_mode = "none"
+
+            # A. Schedule is ON
+            if self._schedule_entity_id and self._last_schedule_state == STATE_ON:
+                new_target = self._comfort_temp
+            
+            # B. Schedule is OFF (Check Preheat)
+            elif self._enable_preheat and self._schedule_entity_id:
                 next_start = self._get_next_schedule_start()
                 if next_start:
-                    # Calculate minutes needed to climb from current to comfort
                     diff = self._comfort_temp - self._current_temp
                     if diff > 0:
                         minutes_needed = diff / self._heat_up_rate
-                        # Cap preheat to the user-defined maximum
                         minutes_needed = min(minutes_needed, self._max_preheat_time)
-                        start_time = next_start - timedelta(minutes=minutes_needed)
                         
-                        # TRIGGER POINT: If we are at or past the calculated start time
-                        if now >= start_time:
-                            _LOGGER.info("Preheat triggered: Current time past calculated start.")
-                            target = self._comfort_temp
-                            preheat_active = True
+                        # If we are within the preheat window, raise the target NOW
+                        if now >= (next_start - timedelta(minutes=minutes_needed)):
+                            new_target = self._comfort_temp
                             self._attr_preset_mode = "preheat"
-        
-        if not preheat_active: 
-            self._attr_preset_mode = "none"
-
-        # --- OVERSHOOT & HYSTERESIS ---
-        overshoot_adj = self._overshoot_temp if self._enable_overshoot else 0.0
-        effective_cutoff = target - overshoot_adj
-        
-        if self._is_active_heating:
-            # If heating, check if we hit the cutoff (adjusted for overshoot)
-            if self._current_temp >= effective_cutoff:
-                _LOGGER.info(f"Target reached ({self._current_temp} >= {effective_cutoff}). Turning OFF.")
-                await self._set_boiler(False)
-            # Safety timeout check
-            elif self._last_on_time and (now.timestamp() - self._last_on_time) > self._max_on_time:
-                 _LOGGER.warning("Safety: Max boiler runtime exceeded. Forcing OFF.")
-                 await self._set_boiler(False)
-        else:
-            # Calculate the normal turn-on point (Target - Hysteresis)
-            on_point = target - self._hysteresis
             
-            # CRITICAL FIX: Boiler turns on if:
-            # 1. We are in the preheat window (preheat_active is True)
-            # 2. OR current temp is below the hysteresis point
-            if preheat_active or self._current_temp <= on_point:
-                 _LOGGER.info(f"Turning ON (Reason: Preheat={preheat_active}, Temp={self._current_temp}, OnPoint={on_point})")
+            # Commit the calculated target
+            self._target_temp = new_target
+
+        # --- 3. BOILER CONTROL (The Reaction) ---
+        # The boiler blindly follows self._target_temp
+        
+        overshoot = self._overshoot_temp if self._enable_overshoot else 0.0
+        off_point = self._target_temp - overshoot
+        on_point = self._target_temp - self._hysteresis
+
+        if self._is_active_heating:
+            # Turn OFF if we hit the target
+            if self._current_temp >= off_point:
+                _LOGGER.info(f"Target reached ({self._current_temp} >= {off_point}). Boiler OFF.")
+                await self._set_boiler(False)
+            
+            # Safety Check
+            elif self._last_on_time and (now.timestamp() - self._last_on_time) > self._max_on_time:
+                _LOGGER.warning("Safety: Max boiler runtime exceeded. Forcing OFF.")
+                await self._set_boiler(False)
+        else:
+            # Turn ON if we drop below hysteresis
+            if self._current_temp <= on_point:
+                 _LOGGER.info(f"Demand detected ({self._current_temp} <= {on_point}). Boiler ON.")
                  await self._set_boiler(True)
 
         self.async_write_ha_state()
@@ -313,7 +314,13 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         now_ts = dt_util.now().timestamp()
         duration_mins = (now_ts - self._last_on_time) / 60.0
         if duration_mins < self._min_burn_time: return 
+        
         delta_temp = self._current_temp - self._heat_start_temp
+        
+        # FIX: Ignore if the jump is impossibly high (Sensor Error)
+        if delta_temp > 1.5: 
+             _LOGGER.warning("Ignoring learning data: Temperature jumped > 1.5C (Possible sensor error).")
+             return
         if delta_temp < 0.2: return
 
         calculated_rate = delta_temp / duration_mins
@@ -341,25 +348,18 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
 
     def _calculate_next_fire_time(self):
         """Estimate when the boiler will next fire."""
-        # 1. If Boiler is Active -> "Now"
         if self._is_active_heating: return dt_util.now().isoformat()
         
-        # 2. If Schedule is Active -> "Now" (don't calculate preheat for an active window)
         if self._schedule_entity_id:
              sched_state = self.hass.states.get(self._schedule_entity_id)
              if sched_state and sched_state.state == STATE_ON:
                  return dt_util.now().isoformat()
 
-        # 3. Get next Schedule Start
         next_sched = self._get_next_schedule_start()
         if not next_sched: return None
         
-        # 4. If Preheat Disabled -> Return Schedule Start directly
         if not self._enable_preheat: return next_sched.isoformat()
             
-        # 5. Calculate Preheat Time
-        # FIX: Default to SETBACK TEMP (not comfort) if current is unknown
-        # This prevents the logic from assuming "it's already warm" when the sensor is initializing.
         current = self._current_temp if self._current_temp is not None else self._setback_temp
         diff = self._comfort_temp - current 
         
