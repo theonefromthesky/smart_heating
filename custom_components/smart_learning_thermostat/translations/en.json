@@ -2,7 +2,7 @@
     "config": {
         "step": {
             "user": {
-                "title": "Set up Smart Heating",
+                "title": "Smart Heating Setup",
                 "description": "Choose the sensors and switches for your central heating.",
                 "data": {
                     "name": "Thermostat Name",
@@ -42,3 +42,4 @@
         }
     }
 }
+
