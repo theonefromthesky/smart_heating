@@ -4,6 +4,9 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 
+self._manual_mode = False
+self._last_schedule_state = None
+
 PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -17,4 +20,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
+
     await hass.config_entries.async_reload(entry.entry_id)
