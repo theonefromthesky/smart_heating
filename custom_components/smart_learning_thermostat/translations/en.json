@@ -1,0 +1,44 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Set up Smart Heating",
+                "description": "Choose the sensors and switches for your central heating.",
+                "data": {
+                    "name": "Thermostat Name",
+                    "heater_entity_id": "Boiler Switch",
+                    "sensor_entity_id": "Room Temperature Sensor",
+                    "schedule_entity_id": "Heating Schedule (Optional)"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Failed to connect"
+        },
+        "abort": {
+            "already_configured": "Device is already configured"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Smart Heating Settings",
+                "description": "Adjust your heating logic and tunable parameters below.",
+                "data": {
+                    "heater_entity_id": "Boiler Switch",
+                    "sensor_entity_id": "Room Temperature Sensor",
+                    "schedule_entity_id": "Heating Schedule",
+                    "comfort_temp": "Comfort Temperature (°C)",
+                    "setback_temp": "Setback Temperature (°C)",
+                    "hysteresis": "Hysteresis (°C)",
+                    "max_on_time": "Max Boiler Runtime (min)",
+                    "max_preheat_time": "Max Preheat Time (min)",
+                    "min_burn_time": "Min Burn Time to Learn (min)",
+                    "enable_preheat": "Enable Smart Pre-heating",
+                    "enable_overshoot": "Enable Overshoot Protection",
+                    "enable_learning": "Enable Adaptive Learning"
+                }
+            }
+        }
+    }
+}
