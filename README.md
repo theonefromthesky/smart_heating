@@ -53,13 +53,13 @@ Accessible via the **Options Flow**, you can tune your thermostat without restar
 ## 📝 License
 This project is licensed under the MIT License.
 
+```mermaid
 flowchart TD
     %% --- Styles ---
     classDef trigger fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
     classDef decision fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
     classDef action fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px;
     classDef state fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
-    classDef fail fill:#ffcdd2,stroke:#c62828,stroke-width:2px;
 
     %% --- Entry Points ---
     Start([Trigger: Timer / Sensor Update / Schedule Change]):::trigger
@@ -128,3 +128,4 @@ flowchart TD
     DoNothing --> End
     UpdateLearning --> End
     BoilerOFF --> End
+```
