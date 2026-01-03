@@ -125,18 +125,23 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             self._heat_loss_rate = last_state.attributes.get("learned_heat_loss_rate", DEFAULT_HEAT_LOSS_RATE)
             self._overshoot_temp = last_state.attributes.get("learned_overshoot", DEFAULT_OVERSHOOT)
 
-        # Listeners
-        async_track_state_change_event(self.hass, [self._sensor_entity_id], self._async_sensor_changed)
-        if self._schedule_entity_id:
-             async_track_state_change_event(self.hass, [self._schedule_entity_id], self._async_control_loop_event)
+        # Listeners - CRITICAL FIX: Wrapped in async_on_remove to kill Zombies
+        self.async_on_remove(
+            async_track_state_change_event(self.hass, [self._sensor_entity_id], self._async_sensor_changed)
+        )
         
-        self.async_on_remove(self._config_entry.add_update_listener(self.async_update_options))
-        async_track_time_interval(self.hass, self._async_control_loop, timedelta(minutes=1))
-
-    async def async_update_options(self, hass, entry):
-        """Handle options update from UI."""
-        self._load_config_options()
-        await self._run_control_logic()
+        if self._schedule_entity_id:
+             self.async_on_remove(
+                async_track_state_change_event(self.hass, [self._schedule_entity_id], self._async_control_loop_event)
+             )
+        
+        # CRITICAL FIX: Removed the self.async_update_options listener. 
+        # __init__.py handles the reload, we don't need to listen here.
+        
+        # CRITICAL FIX: Clean up the time interval listener
+        self.async_on_remove(
+            async_track_time_interval(self.hass, self._async_control_loop, timedelta(minutes=1))
+        )
 
     # --- Properties ---
     @property
