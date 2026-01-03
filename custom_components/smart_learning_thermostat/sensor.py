@@ -7,7 +7,8 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 from datetime import datetime
 
-from .const import DOMAIN
+# Import constants to match climate.py and config_flow.py
+from .const import DOMAIN, CONF_SCHEDULE
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the diagnostic sensors."""
@@ -73,9 +74,9 @@ class NextFireSensor(SensorEntity):
         self._attr_icon = "mdi:clock-start"
         self._climate_entity_id = None
         
-        # Determine schedule entity from config to check for "Window Active"
+        # Determine schedule entity safely using the Constant
         self._schedule_entity_id = config_entry.options.get(
-            "schedule_entity_id", config_entry.data.get("schedule_entity_id")
+            CONF_SCHEDULE, config_entry.data.get(CONF_SCHEDULE)
         )
 
     async def async_added_to_hass(self):
@@ -111,24 +112,21 @@ class NextFireSensor(SensorEntity):
         state = self.hass.states.get(self._climate_entity_id)
         if not state: return None
 
-        # 1. Check for Preheating
-        # If preset_mode is 'preheat', we are definitely preheating right now
+        # 1. Check for Preheating (Priority)
         if state.attributes.get("preset_mode") == "preheat":
             return "Preheating"
 
         # 2. Check if we are inside the Schedule Window ("Now")
-        # We check the actual schedule entity state
         if self._schedule_entity_id:
             sched_state = self.hass.states.get(self._schedule_entity_id)
             if sched_state and sched_state.state == STATE_ON:
                 return "Now"
 
-        # 3. Check for Manual Activation ("Now")
-        # If boiler is burning but schedule is off/missing, it's a manual override
+        # 3. Check for Active Heating (Manual or otherwise)
         if state.attributes.get("boiler_active") is True:
             return "Now"
 
-        # 4. Future Prediction
+        # 4. Future Prediction from Climate Entity
         if "next_fire_timestamp" in state.attributes:
             ts_str = state.attributes["next_fire_timestamp"]
             if ts_str:
@@ -140,7 +138,6 @@ class NextFireSensor(SensorEntity):
                     if next_fire.date() == now.date():
                         return next_fire.strftime("%H:%M")
                     else:
-                        # %a = Mon, Tue, Wed...
                         return next_fire.strftime("%a %H:%M")
         
         return "Unknown"
