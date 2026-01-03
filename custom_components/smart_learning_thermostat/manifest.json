@@ -1,7 +1,7 @@
 {
   "domain": "smart_heating",
   "name": "Smart Learning Thermostat",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "documentation": "https://github.com/theonefromthesky/smart_heating",
   "dependencies": [],
   "codeowners": [],
@@ -9,5 +9,6 @@
   "iot_class": "local_polling",
   "config_flow": true
 }
+
 
 
