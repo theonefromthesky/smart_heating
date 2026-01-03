@@ -1,1 +1,6 @@
-
+{
+  "name": "Smart Learning Thermostat",
+  "render_readme": true,
+  "domains": ["climate"],
+  "homeassistant": "2024.1.0"
+}
