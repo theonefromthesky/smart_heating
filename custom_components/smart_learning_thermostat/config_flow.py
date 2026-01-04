@@ -15,6 +15,7 @@ from .const import (
     CONF_MAX_ON_TIME,
     CONF_MAX_PREHEAT_TIME,
     CONF_MIN_BURN_TIME,
+    CONF_MAX_HEAT_LOSS_TIME,  # <--- Added
     CONF_ENABLE_PREHEAT,
     CONF_ENABLE_OVERSHOOT,
     CONF_ENABLE_LEARNING,
@@ -24,6 +25,7 @@ from .const import (
     DEFAULT_MAX_ON_TIME,
     DEFAULT_MAX_PREHEAT_TIME,
     DEFAULT_MIN_BURN_TIME,
+    DEFAULT_MAX_HEAT_LOSS_TIME, # <--- Added
 )
 
 class SmartHeatingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -90,6 +92,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         max_on_time = get_opt(CONF_MAX_ON_TIME, DEFAULT_MAX_ON_TIME)
         max_preheat_time = get_opt(CONF_MAX_PREHEAT_TIME, DEFAULT_MAX_PREHEAT_TIME)
         min_burn_time = get_opt(CONF_MIN_BURN_TIME, DEFAULT_MIN_BURN_TIME)
+        max_heat_loss_time = get_opt(CONF_MAX_HEAT_LOSS_TIME, DEFAULT_MAX_HEAT_LOSS_TIME) # <--- Added
         
         enable_preheat = get_opt(CONF_ENABLE_PREHEAT, False)
         enable_overshoot = get_opt(CONF_ENABLE_OVERSHOOT, False)
@@ -128,6 +131,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             vol.Optional(CONF_MIN_BURN_TIME, default=min_burn_time): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=60, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
+            ),
+            
+            # --- NEW: Heat Loss Limit Setting ---
+            vol.Optional(CONF_MAX_HEAT_LOSS_TIME, default=max_heat_loss_time): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=60, max=1440, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
 
             # --- Toggles (BooleanSelectors) ---
