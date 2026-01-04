@@ -85,6 +85,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         # Logic Flags
         self._manual_mode = False        
         self._last_schedule_state = None 
+        self._preheat_latch = False  # <--- NEW: Sticks to True once preheat starts
         
         # Learned Values (Persistent)
         self._heat_up_rate = DEFAULT_HEAT_UP_RATE
@@ -118,7 +119,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         
         # --- Numeric Settings ---
         self._hysteresis = get_val(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)
-        # Convert max_on_time minutes to seconds for internal logic
         self._max_on_time = get_val(CONF_MAX_ON_TIME, DEFAULT_MAX_ON_TIME) * 60 
         self._max_preheat_time = get_val(CONF_MAX_PREHEAT_TIME, DEFAULT_MAX_PREHEAT_TIME)
         self._min_burn_time = get_val(CONF_MIN_BURN_TIME, DEFAULT_MIN_BURN_TIME)
@@ -136,7 +136,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         if last_state:
             self._hvac_mode = last_state.state if last_state.state in self._attr_hvac_modes else HVACMode.OFF
             self._target_temp = last_state.attributes.get("target_temp", self._setback_temp)
-            # Restore learned values or fall back to const.py defaults
             self._heat_up_rate = last_state.attributes.get("learned_heat_up_rate", DEFAULT_HEAT_UP_RATE)
             self._heat_loss_rate = last_state.attributes.get("learned_heat_loss_rate", DEFAULT_HEAT_LOSS_RATE)
             self._overshoot_temp = last_state.attributes.get("learned_overshoot", DEFAULT_OVERSHOOT)
@@ -191,6 +190,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             "boiler_active": self._is_active_heating,
             "hysteresis": self._hysteresis,
             "manual_mode": self._manual_mode,
+            "preheat_latch": self._preheat_latch,
             "next_fire_timestamp": self._calculate_next_fire_time(),
         }
 
@@ -244,14 +244,17 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
 
         now = dt_util.now()
 
-        # --- 1. DETECT SCHEDULE CHANGES (Reset Manual Mode) ---
+        # --- 1. DETECT SCHEDULE CHANGES (Reset Flags) ---
         if self._schedule_entity_id:
             sched_state = self.hass.states.get(self._schedule_entity_id)
             current_state = sched_state.state if sched_state else STATE_OFF
             
+            # If schedule flipped (ON->OFF or OFF->ON)
             if self._last_schedule_state and current_state != self._last_schedule_state:
-                _LOGGER.info(f"Schedule changed to {current_state}. Resetting to Auto Mode.")
+                _LOGGER.info(f"Schedule changed to {current_state}. Resetting Auto/Manual/Latch.")
                 self._manual_mode = False 
+                if current_state == STATE_ON:
+                    self._preheat_latch = False # Clear preheat when schedule starts
             
             self._last_schedule_state = current_state
 
@@ -260,20 +263,35 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             new_target = self._setback_temp
             self._attr_preset_mode = "none"
 
+            # A. Schedule is ON
             if self._schedule_entity_id and self._last_schedule_state == STATE_ON:
                 new_target = self._comfort_temp
             
+            # B. Schedule is OFF (Check Preheat)
             elif self._enable_preheat and self._schedule_entity_id:
                 next_start = self._get_next_schedule_start()
-                if next_start:
+                
+                # Check for Entry (Calculated Time) or Existence (Latch)
+                should_preheat = False
+                
+                if self._preheat_latch:
+                    should_preheat = True # Stick to it if we already started!
+                
+                elif next_start:
                     diff = self._comfort_temp - self._current_temp
                     if diff > 0:
                         minutes_needed = diff / self._heat_up_rate
                         minutes_needed = min(minutes_needed, self._max_preheat_time)
                         
+                        # Trigger Check
                         if now >= (next_start - timedelta(minutes=minutes_needed)):
-                            new_target = self._comfort_temp
-                            self._attr_preset_mode = "preheat"
+                            should_preheat = True
+                            _LOGGER.info("Preheat Triggered (Latched ON)")
+                            self._preheat_latch = True
+
+                if should_preheat:
+                    new_target = self._comfort_temp
+                    self._attr_preset_mode = "preheat"
             
             self._target_temp = new_target
 
@@ -317,18 +335,32 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
                 self._peak_temp_observed = self._current_temp
 
     def _learn_heat_up_rate(self):
-        if not self._last_on_time or not self._heat_start_temp or not self._current_temp: return
+        """Debug version: Logs exactly why learning happens or fails."""
+        if not self._last_on_time or not self._heat_start_temp or not self._current_temp:
+            return
+
         now_ts = dt_util.now().timestamp()
         duration_mins = (now_ts - self._last_on_time) / 60.0
-        if duration_mins < self._min_burn_time: return 
-        
         delta_temp = self._current_temp - self._heat_start_temp
-        if delta_temp > 1.5: return # Sensor fault protection
-        if delta_temp < 0.2: return
+        
+        _LOGGER.warning(f"DEBUG: Boiler ran for {round(duration_mins, 1)} min. Temp changed by {round(delta_temp, 2)}C.")
+
+        if duration_mins < self._min_burn_time: 
+            _LOGGER.warning(f"Learning Aborted: Burn time {round(duration_mins, 1)}m is less than minimum {self._min_burn_time}m.")
+            return 
+        
+        if delta_temp < 0.2: 
+            _LOGGER.warning(f"Learning Aborted: Temp rise {round(delta_temp, 2)}C is too small (min 0.2C).")
+            return
+
+        if delta_temp > 2.0: 
+             _LOGGER.warning(f"Learning Aborted: Temp jump {round(delta_temp, 2)}C is impossibly high (Sensor Error?).")
+             return
 
         calculated_rate = delta_temp / duration_mins
         new_rate = (self._heat_up_rate * 0.8) + (calculated_rate * 0.2)
         self._heat_up_rate = max(0.01, min(1.0, new_rate))
+        _LOGGER.warning(f"LEARNING SUCCESS! New Rate: {round(self._heat_up_rate, 4)}")
 
     def _track_overshoot_peak(self):
         if self._current_temp > self._peak_temp_observed: 
