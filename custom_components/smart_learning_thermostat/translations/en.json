@@ -34,6 +34,7 @@
                     "max_on_time": "Max Boiler Runtime (min)",
                     "max_preheat_time": "Max Preheat Time (min)",
                     "min_burn_time": "Min Burn Time to Learn (min)",
+                    "max_heat_loss_time": "Max Heat Loss Learning Time (min)",
                     "enable_preheat": "Enable Smart Pre-heating",
                     "enable_overshoot": "Enable Overshoot Protection",
                     "enable_learning": "Enable Adaptive Learning"
@@ -42,4 +43,3 @@
         }
     }
 }
-
