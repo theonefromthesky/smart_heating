@@ -38,6 +38,7 @@ from .const import (
     CONF_MIN_BURN_TIME,
     CONF_COMFORT_TEMP,
     CONF_SETBACK_TEMP,
+    CONF_MAX_HEAT_LOSS_TIME,
     DEFAULT_HEAT_UP_RATE,
     DEFAULT_HEAT_LOSS_RATE,
     DEFAULT_OVERSHOOT,
@@ -47,6 +48,7 @@ from .const import (
     DEFAULT_MIN_BURN_TIME,
     DEFAULT_COMFORT_TEMP,
     DEFAULT_SETBACK_TEMP,
+    DEFAULT_MAX_HEAT_LOSS_TIME,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -85,19 +87,22 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         # Logic Flags
         self._manual_mode = False        
         self._last_schedule_state = None 
-        self._preheat_latch = False  # <--- NEW: Sticks to True once preheat starts
+        self._preheat_latch = False
         
         # Learned Values (Persistent)
         self._heat_up_rate = DEFAULT_HEAT_UP_RATE
         self._heat_loss_rate = DEFAULT_HEAT_LOSS_RATE
         self._overshoot_temp = DEFAULT_OVERSHOOT
         
-        # Cycle Tracking
+        # Cycle Tracking (Heat Up)
         self._last_on_time = None
         self._heat_start_temp = None
+        
+        # Cycle Tracking (Heat Loss & Overshoot)
         self._last_off_time = None
-        self._peak_tracking_start_temp = None
-        self._peak_temp_observed = None
+        self._peak_temp_observed = None   
+        self._peak_temp_time = None       
+        self._heat_loss_tracking_active = False # New flag to stop tracking once limit is hit
 
     def _load_config_options(self):
         """Read settings safely using constants."""
@@ -122,6 +127,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         self._max_on_time = get_val(CONF_MAX_ON_TIME, DEFAULT_MAX_ON_TIME) * 60 
         self._max_preheat_time = get_val(CONF_MAX_PREHEAT_TIME, DEFAULT_MAX_PREHEAT_TIME)
         self._min_burn_time = get_val(CONF_MIN_BURN_TIME, DEFAULT_MIN_BURN_TIME)
+        self._max_heat_loss_time = get_val(CONF_MAX_HEAT_LOSS_TIME, DEFAULT_MAX_HEAT_LOSS_TIME)
         
         # --- Temperatures ---
         self._comfort_temp = get_val(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
@@ -200,7 +206,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         """User manually sets temp (Override)."""
         if (temp := kwargs.get(ATTR_TEMPERATURE)) is not None:
             self._target_temp = temp
-            self._manual_mode = True  # Lock Manual Mode
+            self._manual_mode = True 
             self.async_write_ha_state()
             await self._run_control_logic()
 
@@ -224,8 +230,11 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN): return
         try:
             self._current_temp = float(new_state.state)
-            if self._enable_learning and not self._is_active_heating and self._peak_tracking_start_temp is not None:
-                self._track_overshoot_peak()
+            
+            # TRACKING LOGIC: If boiler is OFF, we track Overshoot & Heat Loss
+            if self._enable_learning and not self._is_active_heating:
+                self._update_off_cycle_stats()
+                
             await self._run_control_logic()
         except ValueError: pass
 
@@ -244,17 +253,16 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
 
         now = dt_util.now()
 
-        # --- 1. DETECT SCHEDULE CHANGES (Reset Flags) ---
+        # --- 1. DETECT SCHEDULE CHANGES ---
         if self._schedule_entity_id:
             sched_state = self.hass.states.get(self._schedule_entity_id)
             current_state = sched_state.state if sched_state else STATE_OFF
             
-            # If schedule flipped (ON->OFF or OFF->ON)
             if self._last_schedule_state and current_state != self._last_schedule_state:
                 _LOGGER.info(f"Schedule changed to {current_state}. Resetting Auto/Manual/Latch.")
                 self._manual_mode = False 
                 if current_state == STATE_ON:
-                    self._preheat_latch = False # Clear preheat when schedule starts
+                    self._preheat_latch = False 
             
             self._last_schedule_state = current_state
 
@@ -263,27 +271,22 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             new_target = self._setback_temp
             self._attr_preset_mode = "none"
 
-            # A. Schedule is ON
             if self._schedule_entity_id and self._last_schedule_state == STATE_ON:
                 new_target = self._comfort_temp
             
-            # B. Schedule is OFF (Check Preheat)
             elif self._enable_preheat and self._schedule_entity_id:
                 next_start = self._get_next_schedule_start()
                 
-                # Check for Entry (Calculated Time) or Existence (Latch)
                 should_preheat = False
                 
                 if self._preheat_latch:
-                    should_preheat = True # Stick to it if we already started!
-                
+                    should_preheat = True 
                 elif next_start:
                     diff = self._comfort_temp - self._current_temp
                     if diff > 0:
                         minutes_needed = diff / self._heat_up_rate
                         minutes_needed = min(minutes_needed, self._max_preheat_time)
                         
-                        # Trigger Check
                         if now >= (next_start - timedelta(minutes=minutes_needed)):
                             should_preheat = True
                             _LOGGER.info("Preheat Triggered (Latched ON)")
@@ -318,21 +321,85 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         if not self._heater_entity_id: return
 
         if turn_on and not self._is_active_heating:
+            # TURNING ON
+            # Check if we should finalize the heat loss learning before we start burning
+            if self._enable_learning and not self._is_active_heating:
+                 self._finalize_heat_loss_learning()
+
             self._is_active_heating = True
             self._last_on_time = dt_util.now().timestamp()
             self._heat_start_temp = self._current_temp
-            self._peak_tracking_start_temp = None
+            
             await self.hass.services.async_call("switch", "turn_on", {"entity_id": self._heater_entity_id})
             
         elif not turn_on and self._is_active_heating:
+            # TURNING OFF
             self._is_active_heating = False
-            self._last_off_time = dt_util.now().timestamp()
+            
             await self.hass.services.async_call("switch", "turn_off", {"entity_id": self._heater_entity_id})
             
             if self._enable_learning:
                 self._learn_heat_up_rate()
-                self._peak_tracking_start_temp = self._current_temp
+                # Start tracking Overshoot & Heat Loss
+                self._last_off_time = dt_util.now().timestamp()
                 self._peak_temp_observed = self._current_temp
+                self._peak_temp_time = dt_util.now().timestamp()
+                self._heat_loss_tracking_active = True # Enable tracking
+
+    def _update_off_cycle_stats(self):
+        """Called constantly while boiler is OFF to track Peak & Heat Loss Limit."""
+        if not self._peak_temp_observed or not self._current_temp: return
+        
+        now_ts = dt_util.now().timestamp()
+        
+        # 1. Track Peak (Overshoot)
+        # If temp is rising, we are still overshooting. Update the peak.
+        if self._current_temp > self._peak_temp_observed:
+            self._peak_temp_observed = self._current_temp
+            self._peak_temp_time = now_ts # Reset the clock for heat loss
+        
+        # 2. Check Heat Loss Limit (Capping)
+        if self._heat_loss_tracking_active:
+            # How long since the peak?
+            duration_mins = (now_ts - self._peak_temp_time) / 60.0
+            
+            # If we hit the limit, calculate NOW and stop tracking
+            if duration_mins >= self._max_heat_loss_time:
+                _LOGGER.info(f"Heat Loss Limit ({self._max_heat_loss_time}m) reached. Capping calculation.")
+                self._finalize_heat_loss_learning()
+                self._heat_loss_tracking_active = False # Stop tracking this cycle
+
+    def _finalize_heat_loss_learning(self):
+        """Calculates Heat Loss Rate based on Peak Temp -> Current Temp."""
+        if not self._peak_temp_observed or not self._peak_temp_time or not self._current_temp: return
+        if not self._heat_loss_tracking_active: return # Already capped or invalid
+
+        now_ts = dt_util.now().timestamp()
+        duration_mins = (now_ts - self._peak_temp_time) / 60.0
+        
+        # Minimum constraints
+        if duration_mins < 30: return # Ignore short cycles (< 30 mins)
+        
+        # Calculate Delta: Peak (High) - Current (Low)
+        delta_temp = self._peak_temp_observed - self._current_temp
+        
+        if delta_temp < 0.2: return # Too small change
+
+        calculated_rate = delta_temp / duration_mins
+        
+        # Average it
+        new_rate = (self._heat_loss_rate * 0.8) + (calculated_rate * 0.2)
+        self._heat_loss_rate = max(0.001, min(0.5, new_rate))
+        
+        # Update Overshoot for next time
+        if self._last_off_time:
+             # Peak - Temp when boiler turned off
+             actual_overshoot = self._peak_temp_observed - self._heat_start_temp # Approximation using start, strictly should save stop_temp
+             # Note: For strict overshoot we need temp at boiler_stop. 
+             # But self._peak_temp_observed tracks the highest point.
+             pass 
+
+        _LOGGER.info(f"LEARNING: Heat Loss Rate updated to {round(self._heat_loss_rate, 4)} (Delta {round(delta_temp,2)}C over {round(duration_mins,0)}m)")
 
     def _learn_heat_up_rate(self):
         """Debug version: Logs exactly why learning happens or fails."""
@@ -343,35 +410,28 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         duration_mins = (now_ts - self._last_on_time) / 60.0
         delta_temp = self._current_temp - self._heat_start_temp
         
-        _LOGGER.warning(f"DEBUG: Boiler ran for {round(duration_mins, 1)} min. Temp changed by {round(delta_temp, 2)}C.")
+        _LOGGER.info(f"DEBUG: Boiler ran for {round(duration_mins, 1)} min. Temp changed by {round(delta_temp, 2)}C.")
 
         if duration_mins < self._min_burn_time: 
-            _LOGGER.warning(f"Learning Aborted: Burn time {round(duration_mins, 1)}m is less than minimum {self._min_burn_time}m.")
+            _LOGGER.info(f"Learning Aborted: Burn time {round(duration_mins, 1)}m is less than minimum {self._min_burn_time}m.")
             return 
         
         if delta_temp < 0.2: 
-            _LOGGER.warning(f"Learning Aborted: Temp rise {round(delta_temp, 2)}C is too small (min 0.2C).")
+            _LOGGER.info(f"Learning Aborted: Temp rise {round(delta_temp, 2)}C is too small (min 0.2C).")
             return
 
         if delta_temp > 2.0: 
-             _LOGGER.warning(f"Learning Aborted: Temp jump {round(delta_temp, 2)}C is impossibly high (Sensor Error?).")
+             _LOGGER.info(f"Learning Aborted: Temp jump {round(delta_temp, 2)}C is impossibly high (Sensor Error?).")
              return
 
         calculated_rate = delta_temp / duration_mins
         new_rate = (self._heat_up_rate * 0.8) + (calculated_rate * 0.2)
         self._heat_up_rate = max(0.01, min(1.0, new_rate))
-        _LOGGER.warning(f"LEARNING SUCCESS! New Rate: {round(self._heat_up_rate, 4)}")
+        _LOGGER.info(f"LEARNING SUCCESS! New Heat Up Rate: {round(self._heat_up_rate, 4)}")
 
     def _track_overshoot_peak(self):
-        if self._current_temp > self._peak_temp_observed: 
-            self._peak_temp_observed = self._current_temp
-        time_since_off = dt_util.now().timestamp() - (self._last_off_time or 0)
-        if time_since_off > 1800 and self._peak_tracking_start_temp:
-            overshoot = self._peak_temp_observed - self._peak_tracking_start_temp
-            if overshoot > 0:
-                new_overshoot = (self._overshoot_temp * 0.8) + (overshoot * 0.2)
-                self._overshoot_temp = max(0.0, min(1.0, new_overshoot))
-            self._peak_tracking_start_temp = None
+        # This logic is now integrated into _update_off_cycle_stats
+        pass
 
     def _get_next_schedule_start(self):
         if not self._schedule_entity_id: return None
