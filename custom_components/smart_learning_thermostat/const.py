@@ -15,6 +15,7 @@ CONF_MAX_ON_TIME = "max_on_time"
 CONF_MAX_PREHEAT_TIME = "max_preheat_time"
 CONF_HYSTERESIS = "hysteresis"
 CONF_MIN_BURN_TIME = "min_burn_time"
+CONF_MAX_HEAT_LOSS_TIME = "max_heat_loss_time"
 
 CONF_COMFORT_TEMP = "comfort_temp"
 CONF_SETBACK_TEMP = "setback_temp"
@@ -32,5 +33,6 @@ DEFAULT_MIN_BURN_TIME = 10
 DEFAULT_MAX_HEAT_LOSS_TIME = 360
 DEFAULT_COMFORT_TEMP = 20.0
 DEFAULT_SETBACK_TEMP = 15.0
+
 
 
