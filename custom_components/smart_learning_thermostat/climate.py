@@ -37,8 +37,8 @@ from .const import (
     CONF_HYSTERESIS,
     CONF_MIN_BURN_TIME,
     CONF_MAX_HEAT_LOSS_TIME,
-    CONF_COMFORT_TEMP,      # <--- ADDED
-    CONF_SETBACK_TEMP,      # <--- ADDED
+    CONF_COMFORT_TEMP,
+    CONF_SETBACK_TEMP,
     DEFAULT_HEAT_UP_RATE,
     DEFAULT_HEAT_LOSS_RATE,
     DEFAULT_OVERSHOOT,
@@ -146,6 +146,15 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             self._heat_loss_rate = last_state.attributes.get("learned_heat_loss_rate", DEFAULT_HEAT_LOSS_RATE)
             self._overshoot_temp = last_state.attributes.get("learned_overshoot", DEFAULT_OVERSHOOT)
 
+        # --- FIX: SYNC INTERNAL STATE WITH REALITY ---
+        if self._heater_entity_id:
+            # Check what the boiler is doing RIGHT NOW
+            current_switch_state = self.hass.states.get(self._heater_entity_id)
+            if current_switch_state and current_switch_state.state == STATE_ON:
+                self._is_active_heating = True # We are running
+            else:
+                self._is_active_heating = False # We are off
+
         # Listeners
         if self._sensor_entity_id:
             self.async_on_remove(
@@ -160,6 +169,10 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         self.async_on_remove(
             async_track_time_interval(self.hass, self._async_control_loop, timedelta(minutes=1))
         )
+
+        # --- FIX: FORCE LOGIC RUN ---
+        # Run the math immediately to correct the switch if needed
+        await self._run_control_logic()
 
     # --- PROPERTIES ---
     @property
