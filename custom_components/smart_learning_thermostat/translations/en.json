@@ -28,6 +28,7 @@
                     "heater_entity_id": "Boiler Switch",
                     "sensor_entity_id": "Room Temperature Sensor",
                     "schedule_entity_id": "Heating Schedule",
+                    "outside_sensor_entity_id": "Outside Temperature Source (Weather or Sensor)",
                     "comfort_temp": "Comfort Temperature (°C)",
                     "setback_temp": "Setback Temperature (°C)",
                     "hysteresis": "Hysteresis (°C)",
@@ -35,6 +36,7 @@
                     "max_preheat_time": "Max Preheat Time (min)",
                     "min_burn_time": "Min Burn Time to Learn (min)",
                     "max_heat_loss_time": "Max Heat Loss Learning Time (min)",
+                    "weather_sensitivity": "Weather Sensitivity (% per Degree)",
                     "enable_preheat": "Enable Smart Pre-heating",
                     "enable_overshoot": "Enable Overshoot Protection",
                     "enable_learning": "Enable Adaptive Learning"
