@@ -6,11 +6,12 @@ The **Smart Learning Thermostat** is a proactive heating controller for Home Ass
 
 ## 🌟 Key Features
 
-* **Adaptive Learning**: Automatically calculates and refines your home's **Heat Up Rate** and **Heat Loss Rate** based on actual performance data.
+* **Adaptive Learning**: Automatically calculates and refines your home's **Heat Up Rate** based on actual performance. It now captures the **Context (Outside Temperature)** at the moment of learning to create a baseline for future predictions.
+* **Weather Compensation**: Intelligent drift correction that adjusts the pre-heating time based on how much colder it is outside compared to your baseline. Perfect for high-efficiency or low-temperature heating systems.
 * **Proactive Pre-heating**: Predicts how long it will take to reach your `Comfort Temperature` and starts the boiler early so your home is ready the moment your schedule begins.
 * **Overshoot Protection**: Monitors "thermal lag" and shuts off the boiler before the target is reached to prevent the room from becoming too hot.
-* **Intelligent Prediction**: A dedicated sensor provides the exact time for the next heating cycle, adjusted for preheating (e.g., "07:15" or "Mon 06:30").
-* **Hysteresis Management**: Built-in adjustable hysteresis prevents boiler short-cycling, protecting your hardware.
+* **Heat Loss Tracking**: Monitors how fast your home cools down to provide diagnostic data and refine future efficiency calculations.
+* **Restart Proof**: Smart state management ensures the thermostat syncs correctly with your boiler's physical state even after a Home Assistant reboot.
 
 ## 📊 Diagnostic & Prediction Sensors
 
@@ -19,14 +20,17 @@ The integration automatically creates diagnostic entities to give you full visib
 * **Heat Up Rate**: Measures thermal gain in **°C/min**.
 * **Heat Loss Rate**: Measures how fast your room cools when the heating is off (**°C/min**).
 * **Learned Overshoot**: Displays the calculated thermal overshoot in **°C**.
+* **Reference Outside Temp**: The weighted average outside temperature captured during previous heating cycles.
 * **Next Fire Time**: Displays "Now" if active, "Preheating" during early starts, or a formatted timestamp for the next predicted run.
 
 ## ⚙️ Configuration Parameters
 
 Accessible via the **Options Flow**, you can tune your thermostat without restarting:
 
-* **Comfort Temperature**: Your target temperature for active schedule periods.
-* **Setback Temperature**: The energy-saving "economy" temperature used when the schedule is off.
+* **Comfort & Setback Temp**: Your target temperatures for On/Off schedule periods.
+* **Outside Sensor Source**: Select a `weather` entity or a specific outdoor temperature `sensor` to enable weather compensation.
+* **Weather Sensitivity**: A slider (0-5%) to adjust how aggressively the system adds extra pre-heat time on cold days.
+* **Max Heat Loss Time**: The maximum duration (in minutes) the system will track cooling before finalizing the calculation (Default: 6 hours).
 * **Hysteresis**: The temperature buffer to prevent frequent switching.
 * **Max Boiler Runtime**: A safety watchdog that forces the boiler off if a cycle runs too long.
 * **Min Burn Time**: The minimum runtime required for the system to trust and "learn" from a heating cycle.
@@ -49,9 +53,9 @@ Accessible via the **Options Flow**, you can tune your thermostat without restar
 1. Navigate to **Settings** > **Devices & Services**.
 2. Click **Add Integration** and search for **Smart Learning Thermostat**.
 3. Define your **Heater Switch**, **Temperature Sensor**, and optional **Schedule Entity**.
+4. (Optional) Go to **Configure** to enable Weather Compensation and fine-tune your settings.
 
-## 📝 License
-This project is licensed under the MIT License.
+## 📝 Logic Diagram
 
 ```mermaid
 graph TD
