@@ -39,6 +39,8 @@ from .const import (
     CONF_MAX_HEAT_LOSS_TIME,
     CONF_COMFORT_TEMP,
     CONF_SETBACK_TEMP,
+    CONF_OUTSIDE_SENSOR,       # <--- Added
+    CONF_WEATHER_SENSITIVITY,  # <--- Added
     DEFAULT_HEAT_UP_RATE,
     DEFAULT_HEAT_LOSS_RATE,
     DEFAULT_OVERSHOOT,
@@ -49,6 +51,7 @@ from .const import (
     DEFAULT_COMFORT_TEMP,
     DEFAULT_SETBACK_TEMP,
     DEFAULT_MAX_HEAT_LOSS_TIME,
+    DEFAULT_WEATHER_SENSITIVITY, # <--- Added
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -93,6 +96,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         self._heat_up_rate = DEFAULT_HEAT_UP_RATE
         self._heat_loss_rate = DEFAULT_HEAT_LOSS_RATE
         self._overshoot_temp = DEFAULT_OVERSHOOT
+        self._outside_ref_temp = 10.0 # NEW: Default anchor point
         
         # Cycle Tracking (Heat Up)
         self._last_on_time = None
@@ -116,6 +120,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         self._heater_entity_id = get_val(CONF_HEATER)
         self._sensor_entity_id = get_val(CONF_SENSOR)
         self._schedule_entity_id = get_val(CONF_SCHEDULE)
+        self._outside_sensor_id = get_val(CONF_OUTSIDE_SENSOR) # <--- Added
         
         # --- Toggles ---
         self._enable_preheat = get_val(CONF_ENABLE_PREHEAT, False)
@@ -128,6 +133,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         self._max_preheat_time = get_val(CONF_MAX_PREHEAT_TIME, DEFAULT_MAX_PREHEAT_TIME)
         self._min_burn_time = get_val(CONF_MIN_BURN_TIME, DEFAULT_MIN_BURN_TIME)
         self._max_heat_loss_time = get_val(CONF_MAX_HEAT_LOSS_TIME, DEFAULT_MAX_HEAT_LOSS_TIME)
+        self._weather_sensitivity = get_val(CONF_WEATHER_SENSITIVITY, DEFAULT_WEATHER_SENSITIVITY) # <--- Added
         
         # --- Temperatures ---
         self._comfort_temp = get_val(CONF_COMFORT_TEMP, DEFAULT_COMFORT_TEMP)
@@ -145,15 +151,16 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             self._heat_up_rate = last_state.attributes.get("learned_heat_up_rate", DEFAULT_HEAT_UP_RATE)
             self._heat_loss_rate = last_state.attributes.get("learned_heat_loss_rate", DEFAULT_HEAT_LOSS_RATE)
             self._overshoot_temp = last_state.attributes.get("learned_overshoot", DEFAULT_OVERSHOOT)
+            # Restore the context temp
+            self._outside_ref_temp = last_state.attributes.get("learned_outside_ref_temp", 10.0)
 
         # --- FIX: SYNC INTERNAL STATE WITH REALITY ---
         if self._heater_entity_id:
-            # Check what the boiler is doing RIGHT NOW
             current_switch_state = self.hass.states.get(self._heater_entity_id)
             if current_switch_state and current_switch_state.state == STATE_ON:
-                self._is_active_heating = True # We are running
+                self._is_active_heating = True 
             else:
-                self._is_active_heating = False # We are off
+                self._is_active_heating = False 
 
         # Listeners
         if self._sensor_entity_id:
@@ -170,8 +177,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             async_track_time_interval(self.hass, self._async_control_loop, timedelta(minutes=1))
         )
 
-        # --- FIX: FORCE LOGIC RUN ---
-        # Run the math immediately to correct the switch if needed
         await self._run_control_logic()
 
     # --- PROPERTIES ---
@@ -206,12 +211,32 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             "learned_heat_up_rate": round(self._heat_up_rate, 4),
             "learned_heat_loss_rate": round(self._heat_loss_rate, 4),
             "learned_overshoot": round(self._overshoot_temp, 2),
+            "learned_outside_ref_temp": round(self._outside_ref_temp, 1), # <--- Added
+            "weather_sensitivity": self._weather_sensitivity, # <--- Added
             "boiler_active": self._is_active_heating,
             "hysteresis": self._hysteresis,
             "manual_mode": self._manual_mode,
             "preheat_latch": self._preheat_latch,
             "next_fire_timestamp": self._calculate_next_fire_time(),
         }
+
+    # --- HELPER: GET OUTSIDE TEMP ---
+    def _get_outside_temp(self):
+        """Smartly fetch outside temp from Sensor OR Weather entity."""
+        if not self._outside_sensor_id: return None
+        
+        state = self.hass.states.get(self._outside_sensor_id)
+        if not state or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN): return None
+        
+        # If it's a weather entity, look in attributes
+        if self._outside_sensor_id.startswith("weather."):
+            return state.attributes.get("temperature")
+        
+        # Otherwise assume it's a sensor state
+        try:
+            return float(state.state)
+        except ValueError:
+            return None
 
     # --- CONTROL METHODS ---
 
@@ -244,7 +269,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         try:
             self._current_temp = float(new_state.state)
             
-            # TRACKING LOGIC: If boiler is OFF, we track Overshoot & Heat Loss
             if self._enable_learning and not self._is_active_heating:
                 self._update_off_cycle_stats()
                 
@@ -297,12 +321,36 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
                 elif next_start:
                     diff = self._comfort_temp - self._current_temp
                     if diff > 0:
-                        minutes_needed = diff / self._heat_up_rate
+                        # --- NEW: SENSITIVITY MATH ---
+                        
+                        # 1. Start with the Base Rate
+                        adjusted_rate = self._heat_up_rate
+                        
+                        # 2. Check for Weather Compensation
+                        current_outside = self._get_outside_temp()
+                        
+                        if current_outside is not None and self._weather_sensitivity > 0:
+                            # How much colder is it now than when we learned the rate?
+                            delta_outside = self._outside_ref_temp - current_outside
+                            
+                            if delta_outside > 0:
+                                # Calculate penalty percentage (e.g., 10 deg * 2% = 20% penalty)
+                                penalty_factor = (delta_outside * self._weather_sensitivity) / 100.0
+                                
+                                # Clamp penalty to max 80% (sanity check)
+                                penalty_factor = min(0.8, penalty_factor)
+                                
+                                # Apply: Reduce the rate
+                                adjusted_rate = self._heat_up_rate * (1.0 - penalty_factor)
+                                
+                                _LOGGER.debug(f"PREHEAT: Outside is {delta_outside}C colder. Applying {round(penalty_factor*100,1)}% penalty. Rate {self._heat_up_rate} -> {round(adjusted_rate,4)}")
+
+                        minutes_needed = diff / adjusted_rate
                         minutes_needed = min(minutes_needed, self._max_preheat_time)
                         
                         if now >= (next_start - timedelta(minutes=minutes_needed)):
                             should_preheat = True
-                            _LOGGER.info("Preheat Triggered (Latched ON)")
+                            _LOGGER.info(f"Preheat Triggered (Latched ON). Est Time: {round(minutes_needed)}m")
                             self._preheat_latch = True
 
                 if should_preheat:
@@ -334,7 +382,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         if not self._heater_entity_id: return
 
         if turn_on and not self._is_active_heating:
-            # TURNING ON
             if self._enable_learning and not self._is_active_heating:
                  self._finalize_heat_loss_learning()
 
@@ -345,42 +392,33 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             await self.hass.services.async_call("switch", "turn_on", {"entity_id": self._heater_entity_id})
             
         elif not turn_on and self._is_active_heating:
-            # TURNING OFF
             self._is_active_heating = False
             
             await self.hass.services.async_call("switch", "turn_off", {"entity_id": self._heater_entity_id})
             
             if self._enable_learning:
                 self._learn_heat_up_rate()
-                # Start tracking Overshoot & Heat Loss
                 self._last_off_time = dt_util.now().timestamp()
                 self._peak_temp_observed = self._current_temp
                 self._peak_temp_time = dt_util.now().timestamp()
                 self._heat_loss_tracking_active = True 
 
     def _update_off_cycle_stats(self):
-        """Called constantly while boiler is OFF to track Peak & Heat Loss Limit."""
         if not self._peak_temp_observed or not self._current_temp: return
-        
         now_ts = dt_util.now().timestamp()
         
-        # 1. Track Peak (Overshoot)
-        # If temp is rising, we are still overshooting. Update the peak.
         if self._current_temp > self._peak_temp_observed:
             self._peak_temp_observed = self._current_temp
             self._peak_temp_time = now_ts 
         
-        # 2. Check Heat Loss Limit (Capping)
         if self._heat_loss_tracking_active:
             duration_mins = (now_ts - self._peak_temp_time) / 60.0
-            
             if duration_mins >= self._max_heat_loss_time:
                 _LOGGER.info(f"Heat Loss Limit ({self._max_heat_loss_time}m) reached. Capping calculation.")
                 self._finalize_heat_loss_learning()
                 self._heat_loss_tracking_active = False 
 
     def _finalize_heat_loss_learning(self):
-        """Calculates Heat Loss Rate based on Peak Temp -> Current Temp."""
         if not self._peak_temp_observed or not self._peak_temp_time or not self._current_temp: return
         if not self._heat_loss_tracking_active: return 
 
@@ -388,20 +426,17 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         duration_mins = (now_ts - self._peak_temp_time) / 60.0
         
         if duration_mins < 30: return 
-        
         delta_temp = self._peak_temp_observed - self._current_temp
-        
         if delta_temp < 0.2: return 
 
         calculated_rate = delta_temp / duration_mins
-        
         new_rate = (self._heat_loss_rate * 0.8) + (calculated_rate * 0.2)
         self._heat_loss_rate = max(0.001, min(0.5, new_rate))
         
         _LOGGER.info(f"LEARNING: Heat Loss Rate updated to {round(self._heat_loss_rate, 4)} (Delta {round(delta_temp,2)}C over {round(duration_mins,0)}m)")
 
     def _learn_heat_up_rate(self):
-        """Debug version: Logs exactly why learning happens or fails."""
+        """Update Rate AND Reference Temp."""
         if not self._last_on_time or not self._heat_start_temp or not self._current_temp:
             return
 
@@ -418,13 +453,21 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         if delta_temp < 0.2: 
             _LOGGER.info(f"Learning Aborted: Temp rise {round(delta_temp, 2)}C is too small (min 0.2C).")
             return
-
-        # FIXED: Removed the > 2.0C check entirely.
         
         calculated_rate = delta_temp / duration_mins
         new_rate = (self._heat_up_rate * 0.8) + (calculated_rate * 0.2)
         self._heat_up_rate = max(0.01, min(1.0, new_rate))
-        _LOGGER.info(f"LEARNING SUCCESS! New Heat Up Rate: {round(self._heat_up_rate, 4)}")
+        
+        # --- NEW: UPDATE REFERENCE TEMP ---
+        # If we just learned a new rate, we should record the context (Outside Temp)
+        # We blend this too (80/20) so the reference temp evolves with the rate
+        current_outside = self._get_outside_temp()
+        if current_outside is not None:
+            new_ref = (self._outside_ref_temp * 0.8) + (current_outside * 0.2)
+            self._outside_ref_temp = new_ref
+            _LOGGER.info(f"LEARNING SUCCESS! Rate: {round(self._heat_up_rate, 4)} | Ref Outside Temp: {round(self._outside_ref_temp, 1)}C")
+        else:
+            _LOGGER.info(f"LEARNING SUCCESS! Rate: {round(self._heat_up_rate, 4)} (No outside temp available)")
 
     def _track_overshoot_peak(self):
         pass
@@ -455,7 +498,18 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         
         if diff <= 0: return next_sched.isoformat()
         
-        minutes_needed = diff / self._heat_up_rate
+        # --- SENSITIVITY LOGIC ---
+        adjusted_rate = self._heat_up_rate
+        current_outside = self._get_outside_temp()
+        
+        if current_outside is not None and self._weather_sensitivity > 0:
+             delta_outside = self._outside_ref_temp - current_outside
+             if delta_outside > 0:
+                 penalty_factor = (delta_outside * self._weather_sensitivity) / 100.0
+                 penalty_factor = min(0.8, penalty_factor)
+                 adjusted_rate = self._heat_up_rate * (1.0 - penalty_factor)
+
+        minutes_needed = diff / adjusted_rate
         minutes_needed = min(minutes_needed, self._max_preheat_time)
         fire_time = next_sched - timedelta(minutes=minutes_needed)
         
