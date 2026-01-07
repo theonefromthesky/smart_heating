@@ -15,17 +15,20 @@ from .const import (
     CONF_MAX_ON_TIME,
     CONF_MAX_PREHEAT_TIME,
     CONF_MIN_BURN_TIME,
-    CONF_MAX_HEAT_LOSS_TIME,  # <--- Added
+    CONF_MAX_HEAT_LOSS_TIME,
     CONF_ENABLE_PREHEAT,
     CONF_ENABLE_OVERSHOOT,
     CONF_ENABLE_LEARNING,
+    CONF_OUTSIDE_SENSOR,      # <--- Added
+    CONF_WEATHER_SENSITIVITY, # <--- Added
     DEFAULT_COMFORT_TEMP,
     DEFAULT_SETBACK_TEMP,
     DEFAULT_HYSTERESIS,
     DEFAULT_MAX_ON_TIME,
     DEFAULT_MAX_PREHEAT_TIME,
     DEFAULT_MIN_BURN_TIME,
-    DEFAULT_MAX_HEAT_LOSS_TIME, # <--- Added
+    DEFAULT_MAX_HEAT_LOSS_TIME,
+    DEFAULT_WEATHER_SENSITIVITY, # <--- Added
 )
 
 class SmartHeatingConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -66,8 +69,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        # FIXED: Do not manually set self.config_entry. 
-        # The parent class manages it automatically as a property.
         pass
 
     async def async_step_init(self, user_input=None):
@@ -75,8 +76,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        # Helper to get current value, initial value, or a hard default
-        # self.config_entry is available automatically via the parent class
+        # Helper to get current value
         def get_opt(key, default):
             return self.config_entry.options.get(key, self.config_entry.data.get(key, default))
 
@@ -92,7 +92,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         max_on_time = get_opt(CONF_MAX_ON_TIME, DEFAULT_MAX_ON_TIME)
         max_preheat_time = get_opt(CONF_MAX_PREHEAT_TIME, DEFAULT_MAX_PREHEAT_TIME)
         min_burn_time = get_opt(CONF_MIN_BURN_TIME, DEFAULT_MIN_BURN_TIME)
-        max_heat_loss_time = get_opt(CONF_MAX_HEAT_LOSS_TIME, DEFAULT_MAX_HEAT_LOSS_TIME) # <--- Added
+        max_heat_loss_time = get_opt(CONF_MAX_HEAT_LOSS_TIME, DEFAULT_MAX_HEAT_LOSS_TIME)
+        
+        # --- NEW VALUES ---
+        outside_sensor = get_opt(CONF_OUTSIDE_SENSOR, None)
+        weather_sensitivity = get_opt(CONF_WEATHER_SENSITIVITY, DEFAULT_WEATHER_SENSITIVITY)
         
         enable_preheat = get_opt(CONF_ENABLE_PREHEAT, False)
         enable_overshoot = get_opt(CONF_ENABLE_OVERSHOOT, False)
@@ -109,6 +113,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             vol.Optional(CONF_SCHEDULE, description={"suggested_value": schedule_entity}): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["schedule", "calendar", "switch"]) 
+            ),
+            
+            # --- NEW: Weather Source ---
+            vol.Optional(CONF_OUTSIDE_SENSOR, description={"suggested_value": outside_sensor}): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["sensor", "weather"]) 
             ),
 
             # --- Temperatures ---
@@ -132,13 +141,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(CONF_MIN_BURN_TIME, default=min_burn_time): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=60, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
-            
-            # --- NEW: Heat Loss Limit Setting ---
             vol.Optional(CONF_MAX_HEAT_LOSS_TIME, default=max_heat_loss_time): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=1440, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
 
-            # --- Toggles (BooleanSelectors) ---
+            # --- NEW: Sensitivity Slider ---
+            vol.Optional(CONF_WEATHER_SENSITIVITY, default=weather_sensitivity): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=5.0, step=0.5, unit_of_measurement="%", mode=selector.NumberSelectorMode.SLIDER)
+            ),
+
+            # --- Toggles ---
             vol.Optional(CONF_ENABLE_PREHEAT, default=enable_preheat): selector.BooleanSelector(),
             vol.Optional(CONF_ENABLE_OVERSHOOT, default=enable_overshoot): selector.BooleanSelector(),
             vol.Optional(CONF_ENABLE_LEARNING, default=enable_learning): selector.BooleanSelector(),
