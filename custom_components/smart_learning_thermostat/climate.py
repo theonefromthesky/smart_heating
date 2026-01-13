@@ -39,8 +39,8 @@ from .const import (
     CONF_MAX_HEAT_LOSS_TIME,
     CONF_COMFORT_TEMP,
     CONF_SETBACK_TEMP,
-    CONF_OUTSIDE_SENSOR,       # <--- Added
-    CONF_WEATHER_SENSITIVITY,  # <--- Added
+    CONF_OUTSIDE_SENSOR,
+    CONF_WEATHER_SENSITIVITY,
     DEFAULT_HEAT_UP_RATE,
     DEFAULT_HEAT_LOSS_RATE,
     DEFAULT_OVERSHOOT,
@@ -51,7 +51,7 @@ from .const import (
     DEFAULT_COMFORT_TEMP,
     DEFAULT_SETBACK_TEMP,
     DEFAULT_MAX_HEAT_LOSS_TIME,
-    DEFAULT_WEATHER_SENSITIVITY, # <--- Added
+    DEFAULT_WEATHER_SENSITIVITY,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         self._heat_up_rate = DEFAULT_HEAT_UP_RATE
         self._heat_loss_rate = DEFAULT_HEAT_LOSS_RATE
         self._overshoot_temp = DEFAULT_OVERSHOOT
-        self._outside_ref_temp = 10.0 # NEW: Default anchor point
+        self._outside_ref_temp = 10.0
         
         # Cycle Tracking (Heat Up)
         self._last_on_time = None
@@ -321,29 +321,16 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
                 elif next_start:
                     diff = self._comfort_temp - self._current_temp
                     if diff > 0:
-                        # --- NEW: SENSITIVITY MATH ---
-                        
-                        # 1. Start with the Base Rate
                         adjusted_rate = self._heat_up_rate
-                        
-                        # 2. Check for Weather Compensation
                         current_outside = self._get_outside_temp()
                         
                         if current_outside is not None and self._weather_sensitivity > 0:
-                            # How much colder is it now than when we learned the rate?
                             delta_outside = self._outside_ref_temp - current_outside
-                            
                             if delta_outside > 0:
-                                # Calculate penalty percentage (e.g., 10 deg * 2% = 20% penalty)
                                 penalty_factor = (delta_outside * self._weather_sensitivity) / 100.0
-                                
-                                # Clamp penalty to max 80% (sanity check)
                                 penalty_factor = min(0.8, penalty_factor)
-                                
-                                # Apply: Reduce the rate
                                 adjusted_rate = self._heat_up_rate * (1.0 - penalty_factor)
-                                
-                                _LOGGER.debug(f"PREHEAT: Outside is {delta_outside}C colder. Applying {round(penalty_factor*100,1)}% penalty. Rate {self._heat_up_rate} -> {round(adjusted_rate,4)}")
+                                _LOGGER.debug(f"PREHEAT: Outside is {delta_outside}C colder. Applying {round(penalty_factor*100,1)}% penalty.")
 
                         minutes_needed = diff / adjusted_rate
                         minutes_needed = min(minutes_needed, self._max_preheat_time)
@@ -363,6 +350,12 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         overshoot = self._overshoot_temp if self._enable_overshoot else 0.0
         off_point = self._target_temp - overshoot
         on_point = self._target_temp - self._hysteresis
+        
+        heater_is_physically_on = False
+        if self._heater_entity_id:
+             phys_state = self.hass.states.get(self._heater_entity_id)
+             if phys_state and phys_state.state == STATE_ON:
+                 heater_is_physically_on = True
 
         if self._is_active_heating:
             if self._current_temp >= off_point:
@@ -371,10 +364,18 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
             elif self._last_on_time and (now.timestamp() - self._last_on_time) > self._max_on_time:
                 _LOGGER.warning("Safety: Max boiler runtime exceeded. Forcing OFF.")
                 await self._set_boiler(False)
+            else:
+                if not heater_is_physically_on:
+                    _LOGGER.warning("WATCHDOG: Thermostat is Active, but Switch is OFF. Forcing Sync (ON).")
+                    await self.hass.services.async_call("switch", "turn_on", {"entity_id": self._heater_entity_id})
         else:
             if self._current_temp <= on_point:
                  _LOGGER.info(f"Demand detected ({self._current_temp} <= {on_point}). Boiler ON.")
                  await self._set_boiler(True)
+            else:
+                 if heater_is_physically_on:
+                     _LOGGER.warning("WATCHDOG: Thermostat is Idle, but Switch is ON. Forcing Sync (OFF).")
+                     await self.hass.services.async_call("switch", "turn_off", {"entity_id": self._heater_entity_id})
 
         self.async_write_ha_state()
 
@@ -458,9 +459,6 @@ class SmartThermostat(ClimateEntity, RestoreEntity):
         new_rate = (self._heat_up_rate * 0.8) + (calculated_rate * 0.2)
         self._heat_up_rate = max(0.01, min(1.0, new_rate))
         
-        # --- NEW: UPDATE REFERENCE TEMP ---
-        # If we just learned a new rate, we should record the context (Outside Temp)
-        # We blend this too (80/20) so the reference temp evolves with the rate
         current_outside = self._get_outside_temp()
         if current_outside is not None:
             new_ref = (self._outside_ref_temp * 0.8) + (current_outside * 0.2)
